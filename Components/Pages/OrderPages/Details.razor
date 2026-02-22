@@ -1,0 +1,227 @@
+﻿@page "/orders/details"
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+@rendermode InteractiveServer
+
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+
+<PageTitle>Детали заказа #@OrderId</PageTitle>
+
+<div class="container-fluid">
+    <!-- Заголовок -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Детали заказа #@OrderId</h1>
+        <div>
+            <AuthorizeView Roles="Administrator,Manager">
+                <Authorized>
+                    <a href="@($"/orders/edit?orderid={OrderId}")" class="btn btn-primary">
+                        Редактировать
+                    </a>
+                </Authorized>
+            </AuthorizeView>
+            <a href="/orders" class="btn btn-secondary">
+                Назад к списку
+            </a>
+        </div>
+    </div>
+
+    @if (order is null)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-2">Загрузка данных заказа...</p>
+        </div>
+    }
+    else
+    {
+        <!-- Основная информация о заказе -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Информация о заказе</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Статус:</label>
+                            <div>
+                                <span class="badge @GetStatusBadgeClass(order.Status)">
+                                    @order.Status
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Дата заказа:</label>
+                            <div>@order.OrderDate.ToString("dd.MM.yyyy HH:mm")</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Общая сумма:</label>
+                            <div class="h5 text-success">@order.TotalAmount.ToString("C2")</div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Клиент:</label>
+                            <div>
+                                @if (order.User != null)
+                                {
+                                    <div>@order.User.LastName @order.User.FirstName @order.User.MiddleName</div>
+                                    <div class="text-muted small">@order.User.Email</div>
+                                }
+                                else
+                                {
+                                    <div class="text-muted">Информация о пользователе не найдена</div>
+                                }
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Телефон:</label>
+                            <div>@order.PhoneNumber</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Адрес доставки:</label>
+                            <div>@order.ShippingAddress</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Товары в заказе -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Товары в заказе</h5>
+            </div>
+            <div class="card-body">
+                @if (order.OrderItems?.Any() == true)
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Товар</th>
+                                    <th>Артикул</th>
+                                    <th>Производитель</th>
+                                    <th class="text-end">Цена за шт.</th>
+                                    <th class="text-end">Количество</th>
+                                    <th class="text-end">Сумма</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in order.OrderItems.OrderBy(i => i.Part?.Name))
+                                {
+                                    var itemTotal = item.UnitPrice * item.Quantity;
+                                    
+                                    <tr>
+                                        <td>
+                                            <div class="d-flex align-items-center">
+                                                <!-- Изображение товара -->
+                                                <div class="me-3" style="width: 75px; height: 75px;">
+                                                    @if (!string.IsNullOrEmpty(item.Part?.ImagePath))
+                                                    {
+                                                        <img src="@item.Part.ImagePath" 
+                                                             class="img-thumbnail" 
+                                                             style="width: 100%; height: 100%; object-fit: contain;" 
+                                                             alt="@item.Part.Name"
+                                                             onerror="this.onerror=null;this.src='/images/no-image.png';" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="text-center text-muted d-flex align-items-center justify-content-center h-100 border rounded">
+                                                            <i class="bi bi-image"></i>
+                                                        </div>
+                                                    }
+                                                </div>
+                                                <div>
+                                                    <div class="fw-bold">@(item.Part?.Name ?? "Неизвестный товар")</div>
+                                                    @if (!string.IsNullOrEmpty(item.Part?.Description))
+                                                    {
+                                                        <small class="text-muted">@item.Part.Description</small>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <code>@(item.Part?.Article ?? "-")</code>
+                                        </td>
+                                        <td>@(item.Part?.Manufacturer?.Name ?? "Не указан")</td>
+                                        <td class="text-end">@item.UnitPrice.ToString("C2")</td>
+                                        <td class="text-end">@item.Quantity шт.</td>
+                                        <td class="text-end fw-bold">@itemTotal.ToString("C2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr class="table-light">
+                                    <th colspan="5" class="text-end">Итого:</th>
+                                    <th class="text-end h5 text-success">@order.TotalAmount.ToString("C2")</th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-info">
+                        В этом заказе нет товаров.
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Order? order;
+    private string? errorMessage;
+
+    [SupplyParameterFromQuery]
+    private int OrderId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            // Загружаем заказ со всеми связанными данными
+            order = await context.Orders
+                .Include(o => o.User)
+                .Include(o => o.OrderItems)
+                    .ThenInclude(oi => oi.Part)
+                        .ThenInclude(p => p!.Manufacturer)
+                .FirstOrDefaultAsync(m => m.OrderId == OrderId);
+
+            if (order is null)
+            {
+                NavigationManager.NavigateTo("/orders");
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при загрузке данных: {ex.Message}";
+        }
+    }
+
+    private string GetStatusBadgeClass(string? status)
+    {
+        return status switch
+        {
+            "В обработке" => "bg-warning",
+            "Оплачен" => "bg-primary",
+            "Доставлен" => "bg-success",
+            "Отменен" => "bg-danger",
+            _ => "bg-info"
+        };
+    }
+}

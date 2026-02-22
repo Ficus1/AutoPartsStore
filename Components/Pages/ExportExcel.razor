@@ -1,0 +1,230 @@
+@page "/exportexcel"
+@using ClosedXML.Excel
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@inject IDbContextFactory<AutoPartsContext> DbFactory
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Administrator,Manager")]
+
+<PageTitle>Экспорт данных</PageTitle>
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card shadow-sm border-0">
+                <div class="card-body p-4 p-md-5">
+                    <!-- Заголовок -->
+                    <div class="text-center mb-4">
+                        <div class="excel-icon mb-3">
+                            <i class="bi bi-file-earmark-excel"></i>
+                        </div>
+                        <h2 class="fw-bold text-primary mb-2">Экспорт данных в Excel</h2>
+                        <p class="text-muted">Все данные системы будут экспортированы в файл Excel</p>
+                    </div>
+
+                    <!-- Информация о файле -->
+                    <div class="alert alert-light border mb-4">
+                        <div class="d-flex align-items-start">
+                            <i class="bi bi-info-circle-fill text-primary me-2 mt-1"></i>
+                            <div>
+                                <h6 class="fw-bold mb-2">Что будет экспортировано:</h6>
+                                <ul class="list-unstyled mb-0">
+                                    <li class="mb-1"><i class="bi bi-check text-success me-2"></i>Категории товаров</li>
+                                    <li class="mb-1"><i class="bi bi-check text-success me-2"></i>Производители</li>
+                                    <li class="mb-1"><i class="bi bi-check text-success me-2"></i>Товары и остатки</li>
+                                    <li><i class="bi bi-check text-success me-2"></i>Заказы и продажи</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Кнопка экспорта -->
+                    <div class="d-grid">
+                        <button @onclick="ExportToExcel" 
+                                class="btn btn-excel btn-lg fw-semibold">
+                            <i class="bi bi-download me-2"></i>Экспортировать все данные
+                        </button>
+                    </div>
+
+                    <!-- Подсказка -->
+                    <div class="text-center mt-4">
+                        <small class="text-muted">
+                            <i class="bi bi-clock-history me-1"></i>
+                            Файл будет содержать актуальные данные на текущую дату
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private async Task ExportToExcel()
+    {
+        using var context = DbFactory.CreateDbContext();
+        
+        using var workbook = new XLWorkbook();
+        
+        // 1. Лист с категориями
+        var categoriesSheet = workbook.Worksheets.Add("Категории");
+        categoriesSheet.Cell(1, 1).Value = "ID категории";
+        categoriesSheet.Cell(1, 2).Value = "Название";
+        categoriesSheet.Cell(1, 3).Value = "Описание";
+        
+        var categories = await context.Categories.ToListAsync();
+        for (int i = 0; i < categories.Count; i++)
+        {
+            categoriesSheet.Cell(i + 2, 1).Value = categories[i].CategoryId;
+            categoriesSheet.Cell(i + 2, 2).Value = categories[i].Name;
+            categoriesSheet.Cell(i + 2, 3).Value = categories[i].Description;
+        }
+        
+        // 2. Лист с производителями
+        var manufacturersSheet = workbook.Worksheets.Add("Производители");
+        manufacturersSheet.Cell(1, 1).Value = "ID производителя";
+        manufacturersSheet.Cell(1, 2).Value = "Название";
+        manufacturersSheet.Cell(1, 3).Value = "Страна";
+        manufacturersSheet.Cell(1, 4).Value = "Описание";
+        
+        var manufacturers = await context.Manufacturers.ToListAsync();
+        for (int i = 0; i < manufacturers.Count; i++)
+        {
+            manufacturersSheet.Cell(i + 2, 1).Value = manufacturers[i].ManufacturerId;
+            manufacturersSheet.Cell(i + 2, 2).Value = manufacturers[i].Name;
+            manufacturersSheet.Cell(i + 2, 3).Value = manufacturers[i].Country;
+            manufacturersSheet.Cell(i + 2, 4).Value = manufacturers[i].Description;
+        }
+        
+        // 3. Лист с товарами
+        var partsSheet = workbook.Worksheets.Add("Товары");
+        partsSheet.Cell(1, 1).Value = "ID товара";
+        partsSheet.Cell(1, 2).Value = "Артикул";
+        partsSheet.Cell(1, 3).Value = "Название";
+        partsSheet.Cell(1, 4).Value = "Производитель";
+        partsSheet.Cell(1, 5).Value = "Категория";
+        partsSheet.Cell(1, 6).Value = "Цена";
+        partsSheet.Cell(1, 7).Value = "Количество";
+        partsSheet.Cell(1, 8).Value = "Описание";
+        
+        var parts = await context.Parts
+            .Include(p => p.Manufacturer)
+            .Include(p => p.Category)
+            .ToListAsync();
+        
+        for (int i = 0; i < parts.Count; i++)
+        {
+            partsSheet.Cell(i + 2, 1).Value = parts[i].PartId;
+            partsSheet.Cell(i + 2, 2).Value = parts[i].Article;
+            partsSheet.Cell(i + 2, 3).Value = parts[i].Name;
+            partsSheet.Cell(i + 2, 4).Value = parts[i].Manufacturer?.Name;
+            partsSheet.Cell(i + 2, 5).Value = parts[i].Category?.Name;
+            partsSheet.Cell(i + 2, 6).Value = parts[i].Price;
+            partsSheet.Cell(i + 2, 7).Value = parts[i].StockQuantity;
+            partsSheet.Cell(i + 2, 8).Value = parts[i].Description;
+        }
+        
+        // 4. Лист с заказами
+        var ordersSheet = workbook.Worksheets.Add("Заказы");
+        ordersSheet.Cell(1, 1).Value = "ID заказа";
+        ordersSheet.Cell(1, 2).Value = "Дата заказа";
+        ordersSheet.Cell(1, 3).Value = "Статус";
+        ordersSheet.Cell(1, 4).Value = "Сумма";
+        ordersSheet.Cell(1, 5).Value = "Адрес доставки";
+        
+        var orders = await context.Orders.ToListAsync();
+        for (int i = 0; i < orders.Count; i++)
+        {
+            ordersSheet.Cell(i + 2, 1).Value = orders[i].OrderId;
+            ordersSheet.Cell(i + 2, 2).Value = orders[i].OrderDate;
+            ordersSheet.Cell(i + 2, 3).Value = orders[i].Status;
+            ordersSheet.Cell(i + 2, 4).Value = orders[i].TotalAmount;
+            ordersSheet.Cell(i + 2, 5).Value = orders[i].ShippingAddress;
+        }
+        
+        // Сохраняем файл
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        var fileBytes = stream.ToArray();
+        
+        // Скачиваем файл
+        var fileName = $"Автозапчасти_{DateTime.Now:yyyyMMdd}.xlsx";
+        await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(fileBytes));
+    }
+}
+
+<style>
+/* Контейнер */
+.container {
+    max-width: 1200px;
+}
+
+/* Карточка */
+.card {
+    border-radius: 12px;
+    border: 1px solid #e0e0e0;
+    transition: transform 0.2s ease;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Иконка Excel */
+.excel-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    background: linear-gradient(135deg, #1d6f42 0%, #2e8b57 100%);
+    border-radius: 12px;
+    color: white;
+    font-size: 28px;
+}
+
+/* Кнопка */
+.btn-excel {
+    background: linear-gradient(135deg, #1d6f42 0%, #2e8b57 100%);
+    border: none;
+    border-radius: 8px;
+    padding: 12px 24px;
+    color: white;
+    transition: all 0.3s ease;
+}
+
+.btn-excel:hover {
+    background: linear-gradient(135deg, #2e8b57 0%, #3cb371 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(29, 111, 66, 0.3);
+}
+
+.btn-excel:active {
+    transform: translateY(0);
+}
+
+/* Списки */
+.list-unstyled li {
+    padding: 4px 0;
+}
+
+/* Алерт */
+.alert-light {
+    background-color: #f8f9fa;
+    border-left: 4px solid #1d6f42 !important;
+}
+
+/* Текст */
+.text-primary {
+    color: #1d6f42 !important;
+}
+
+h2 {
+    font-size: 1.75rem;
+    letter-spacing: -0.01em;
+}
+
+</style>

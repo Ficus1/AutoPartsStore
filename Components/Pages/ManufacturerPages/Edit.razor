@@ -1,0 +1,131 @@
+﻿@page "/manufacturers/edit"
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Administrator,Manager")]
+
+<PageTitle>Редактирование производителя</PageTitle>
+
+<div class="container mt-4">
+    <h2>Редактирование производителя</h2>
+    
+    @if (Manufacturer is null)
+    {
+        <div class="text-center mt-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-2">Загрузка данных...</p>
+        </div>
+    }
+    else
+    {
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">Редактирование производителя</h5>
+            </div>
+            <div class="card-body">
+                <EditForm method="post" Model="Manufacturer" OnValidSubmit="UpdateManufacturer" FormName="edit" Enhance>
+                    <DataAnnotationsValidator />
+                    <ValidationSummary role="alert" class="text-danger" />
+                    <input type="hidden" name="Manufacturer.ManufacturerId" value="@Manufacturer.ManufacturerId" />
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <span class="text-danger">*</span>
+                                <label for="name" class="form-label">Название:</label>
+                                <InputText id="name" @bind-Value="Manufacturer.Name" class="form-control" aria-required="true" />
+                                <ValidationMessage For="() => Manufacturer.Name" class="text-danger" />
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="country" class="form-label">Страна:</label>
+                                <InputText id="country" @bind-Value="Manufacturer.Country" class="form-control" />
+                                <ValidationMessage For="() => Manufacturer.Country" class="text-danger" />
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="description" class="form-label">Описание:</label>
+                                <InputText id="description" @bind-Value="Manufacturer.Description" class="form-control" />
+                                <ValidationMessage For="() => Manufacturer.Description" class="text-danger" />
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <InputCheckbox id="isactive" @bind-Value="Manufacturer.IsActive" class="form-check-input" />
+                                    <label for="isactive" class="form-check-label">Активен</label>
+                                    <ValidationMessage For="() => Manufacturer.IsActive" class="text-danger" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary">Сохранить</button>
+                            <a href="/manufacturers" class="btn btn-outline-secondary">Отмена</a>
+                        </div>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    private int ManufacturerId { get; set; }
+
+    [SupplyParameterFromForm]
+    private Manufacturer? Manufacturer { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        using var context = DbFactory.CreateDbContext();
+        Manufacturer ??= await context.Manufacturers.FirstOrDefaultAsync(m => m.ManufacturerId == ManufacturerId);
+
+        if (Manufacturer is null)
+        {
+            NavigationManager.NavigateTo("/manufacturers");
+        }
+    }
+
+    // To protect from overposting attacks, enable the specific properties you want to bind to.
+    // For more information, see https://learn.microsoft.com/aspnet/core/blazor/forms/#mitigate-overposting-attacks.
+    private async Task UpdateManufacturer()
+    {
+        using var context = DbFactory.CreateDbContext();
+        context.Attach(Manufacturer!).State = EntityState.Modified;
+
+        try
+        {
+            await context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            if (!ManufacturerExists(Manufacturer!.ManufacturerId))
+            {
+                NavigationManager.NavigateTo("/manufacturers");
+                return;
+            }
+            else
+            {
+                throw;
+            }
+        }
+
+        NavigationManager.NavigateTo("/manufacturers");
+    }
+
+    private bool ManufacturerExists(int manufacturerid)
+    {
+        using var context = DbFactory.CreateDbContext();
+        return context.Manufacturers.Any(e => e.ManufacturerId == manufacturerid);
+    }
+}

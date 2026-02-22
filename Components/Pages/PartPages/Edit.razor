@@ -1,0 +1,470 @@
+﻿@page "/parts/edit"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@using Microsoft.AspNetCore.Components.Forms
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+@inject IWebHostEnvironment Environment
+
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Administrator,Manager")]
+
+<PageTitle>Редактирование запчасти</PageTitle>
+
+<div class="container mt-4">
+    <h2>Редактирование запчасти</h2>
+    
+    @if (Part is null || Manufacturers is null || Categories is null)
+    {
+        <div class="text-center mt-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-2">Загрузка данных...</p>
+        </div>
+    }
+    else
+    {
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">Редактирование запчасти</h5>
+            </div>
+            <div class="card-body">
+                <EditForm method="post" Model="Part" OnValidSubmit="UpdatePart" FormName="edit" Enhance>
+                    <DataAnnotationsValidator />
+                    <ValidationSummary role="alert" class="text-danger" />
+                    <input type="hidden" name="Part.PartId" value="@Part.PartId" />
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <span class="text-danger">*</span>
+                                <label for="name" class="form-label">Название:</label>
+                                <InputText id="name" @bind-Value="Part.Name" class="form-control" aria-required="true" />
+                                <ValidationMessage For="() => Part.Name" class="text-danger" />
+                            </div>
+                            
+                            <div class="mb-3">
+                                <span class="text-danger">*</span>
+                                <label for="article" class="form-label">Артикул:</label>
+                                <InputText id="article" @bind-Value="Part.Article" class="form-control" aria-required="true" />
+                                <ValidationMessage For="() => Part.Article" class="text-danger" />
+                            </div>
+                            
+                            <div class="mb-3">
+                                <span class="text-danger">*</span>
+                                <label for="manufacturer" class="form-label">Производитель:</label>
+                                <InputSelect id="manufacturer" @bind-Value="Part.ManufacturerId" class="form-control" aria-required="true">
+                                    <option value="">Выберите производителя...</option>
+                                    @foreach (var m in Manufacturers)
+                                    {
+                                        <option value="@m.ManufacturerId">@m.Name</option>
+                                    }
+                                </InputSelect>
+                                <ValidationMessage For="() => Part.ManufacturerId" class="text-danger" />
+                            </div>
+                            
+                            <div class="mb-3">
+                                <span class="text-danger">*</span>
+                                <label for="category" class="form-label">Категория:</label>
+                                <InputSelect id="category" @bind-Value="Part.CategoryId" class="form-control" aria-required="true">
+                                    <option value="">Выберите категорию...</option>
+                                    @foreach (var c in Categories)
+                                    {
+                                        <option value="@c.CategoryId">@c.Name</option>
+                                    }
+                                </InputSelect>
+                                <ValidationMessage For="() => Part.CategoryId" class="text-danger" />
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <!-- Текущее изображение и загрузка нового -->
+                            <div class="mb-3">
+                                <label class="form-label">Изображение:</label>
+                                
+                                <!-- Текущее изображение -->
+                                @if (!string.IsNullOrEmpty(currentImagePath))
+                                {
+                                    <div class="mb-2">
+                                        <p class="small text-muted mb-1">Текущее изображение:</p>
+                                        <img src="@currentImagePath" 
+                                             class="img-thumbnail" 
+                                             style="max-width: 200px; max-height: 200px;"
+                                             alt="Текущее изображение"
+                                             onerror="this.onerror=null;this.src='/images/no-image.png';" />
+                                    </div>
+                                }
+                                
+                                <!-- Загрузка нового изображения -->
+                                <div class="mt-2">
+                                    <p class="small text-muted mb-1">Загрузить новое изображение:</p>
+                                    <InputFile class="form-control" 
+                                               OnChange="HandleImageUpload" 
+                                               accept=".jpg,.jpeg,.png,.gif,.webp" />
+                                    
+                                    @if (!string.IsNullOrEmpty(newImagePreviewUrl))
+                                    {
+                                        <div class="mt-2">
+                                            <p class="small text-muted mb-1">Новое изображение:</p>
+                                            <img src="@newImagePreviewUrl" 
+                                                 class="img-thumbnail" 
+                                                 style="max-width: 200px; max-height: 200px;"
+                                                 alt="Новое изображение" />
+                                        </div>
+                                    }
+                                    
+                                    <div class="form-text">
+                                        Поддерживаемые форматы: JPG, PNG, GIF, WebP. Максимальный размер: 15MB.
+                                    </div>
+                                    
+                                    @if (!string.IsNullOrEmpty(imageError))
+                                    {
+                                        <div class="text-danger small mt-1">@imageError</div>
+                                    }
+                                    
+                                    <!-- Кнопка удаления текущего изображения -->
+                                    @if (!string.IsNullOrEmpty(currentImagePath))
+                                    {
+                                        <div class="mt-2">
+                                            <button type="button" class="btn btn-sm btn-outline-danger" @onclick="DeleteCurrentImage">
+                                                <i class="bi bi-trash"></i> Удалить текущее изображение
+                                            </button>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <span class="text-danger">*</span>
+                                        <label for="price" class="form-label">Цена (₽):</label>
+                                        <InputNumber id="price" @bind-Value="Part.Price" class="form-control" aria-required="true" />
+                                        <ValidationMessage For="() => Part.Price" class="text-danger" />
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <span class="text-danger">*</span>
+                                        <label for="stockQuantity" class="form-label">Количество:</label>
+                                        <InputNumber id="stockQuantity" @bind-Value="Part.StockQuantity" class="form-control" aria-required="true" />
+                                        <ValidationMessage For="() => Part.StockQuantity" class="text-danger" />
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="description" class="form-label">Описание:</label>
+                                <InputTextArea id="description" @bind-Value="Part.Description" class="form-control" rows="3" />
+                                <ValidationMessage For="() => Part.Description" class="text-danger" />
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary" disabled="@IsSaving">
+                                @if (IsSaving)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    <span>Сохранение...</span>
+                                }
+                                else
+                                {
+                                    <span>Сохранить изменения</span>
+                                }
+                            </button>
+                            <a href="@($"/parts/details?partid={Part.PartId}")" class="btn btn-outline-secondary">Отмена</a>
+                        </div>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    private int PartId { get; set; }
+
+    [SupplyParameterFromForm]
+    private PartDto? Part { get; set; }
+
+    private List<Manufacturer>? Manufacturers { get; set; }
+    private List<Category>? Categories { get; set; }
+    
+    // Поля для работы с изображениями
+    private string? currentImagePath;
+    private string? originalImagePath; // Сохраняем оригинальный путь для удаления
+    private IBrowserFile? newImageFile;
+    private string? newImagePreviewUrl;
+    private string? imageError;
+    private bool IsSaving { get; set; } = false;
+    private bool imageMarkedForDeletion = false;
+    private readonly long MaxFileSize = 15 * 1024 * 1024; // 15MB
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Загружаем справочники для выпадающих списков
+        await LoadReferenceData();
+        
+        // Загружаем данные запчасти
+        if (Part is null)
+        {
+            await LoadPartData();
+        }
+
+        if (Part is null)
+        {
+            NavigationManager.NavigateTo("/parts/details");
+        }
+    }
+
+    private async Task LoadReferenceData()
+    {
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            Manufacturers = await context.Manufacturers
+                .Where(m => m.IsActive)
+                .OrderBy(m => m.Name)
+                .ToListAsync();
+                
+            Categories = await context.Categories
+                .OrderBy(c => c.Name)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при загрузке справочников: {ex.Message}");
+        }
+    }
+
+    private async Task LoadPartData()
+    {
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            var part = await context.Parts
+                .Where(p => p.PartId == PartId)
+                .Select(p => new PartDto
+                {
+                    PartId = p.PartId,
+                    Name = p.Name ?? string.Empty,
+                    Article = p.Article ?? string.Empty,
+                    ManufacturerId = p.ManufacturerId,
+                    CategoryId = p.CategoryId,
+                    Price = p.Price,
+                    StockQuantity = p.StockQuantity,
+                    ImagePath = p.ImagePath,
+                    Description = p.Description
+                })
+                .FirstOrDefaultAsync();
+
+            Part = part;
+            
+            // Сохраняем текущий путь к изображению и оригинальный
+            if (Part != null && !string.IsNullOrEmpty(Part.ImagePath))
+            {
+                currentImagePath = Part.ImagePath;
+                originalImagePath = Part.ImagePath;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при загрузке запчасти: {ex.Message}");
+        }
+    }
+
+    private async Task HandleImageUpload(InputFileChangeEventArgs e)
+    {
+        imageError = string.Empty;
+        newImageFile = null;
+        newImagePreviewUrl = string.Empty;
+
+        try
+        {
+            var file = e.File;
+            
+            // Проверка размера файла
+            if (file.Size > MaxFileSize)
+            {
+                imageError = $"Файл слишком большой. Максимальный размер: {MaxFileSize / 1024 / 1024}MB";
+                return;
+            }
+
+            // Проверка типа файла
+            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
+            var extension = Path.GetExtension(file.Name).ToLowerInvariant();
+            
+            if (!allowedExtensions.Contains(extension))
+            {
+                imageError = "Недопустимый формат файла. Разрешены: JPG, PNG, GIF, WebP";
+                return;
+            }
+
+            newImageFile = file;
+            
+            // Создание предпросмотра
+            var format = "image/jpeg";
+            var resizedImage = await file.RequestImageFileAsync(format, 400, 400);
+            var buffer = new byte[resizedImage.Size];
+            await resizedImage.OpenReadStream().ReadAsync(buffer);
+            newImagePreviewUrl = $"data:{format};base64,{Convert.ToBase64String(buffer)}";
+        }
+        catch (Exception ex)
+        {
+            imageError = $"Ошибка при загрузке изображения: {ex.Message}";
+        }
+    }
+
+    private async Task<string?> SaveImageFile(IBrowserFile? file)
+    {
+        if (file == null) return null;
+        
+        try
+        {
+            var extension = Path.GetExtension(file.Name);
+            var fileName = $"{Guid.NewGuid()}{extension}";
+            var uploadsFolder = Path.Combine(Environment.WebRootPath, "uploads", "parts");
+            
+            // Создаем папку, если ее нет
+            if (!Directory.Exists(uploadsFolder))
+            {
+                Directory.CreateDirectory(uploadsFolder);
+            }
+            
+            var filePath = Path.Combine(uploadsFolder, fileName);
+            
+            // Сохраняем файл
+            await using var stream = new FileStream(filePath, FileMode.Create);
+            await file.OpenReadStream(MaxFileSize).CopyToAsync(stream);
+            
+            return $"/uploads/parts/{fileName}";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при сохранении изображения: {ex.Message}");
+            return null;
+        }
+    }
+
+    private void DeleteCurrentImage()
+    {
+        // Помечаем изображение для удаления
+        imageMarkedForDeletion = true;
+        currentImagePath = null;
+        Part!.ImagePath = null;
+        
+        // Сбрасываем предпросмотр нового изображения, если есть
+        newImageFile = null;
+        newImagePreviewUrl = null;
+        
+        StateHasChanged();
+    }
+
+    private async Task DeleteImageFile(string? imagePath)
+    {
+        if (string.IsNullOrEmpty(imagePath) || !imagePath.StartsWith("/uploads/parts/"))
+            return;
+
+        try
+        {
+            // Преобразуем относительный путь в абсолютный
+            var relativePath = imagePath.TrimStart('/');
+            var filePath = Path.Combine(Environment.WebRootPath, relativePath);
+            
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+                Console.WriteLine($"Изображение удалено: {filePath}");
+            }
+            else
+            {
+                Console.WriteLine($"Файл не найден: {filePath}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при удалении изображения: {ex.Message}");
+            // Не бросаем исключение дальше, чтобы не прерывать сохранение
+        }
+    }
+
+    private async Task UpdatePart()
+    {
+        IsSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            string? newImagePath = null;
+            
+            // Обработка изображения
+            if (newImageFile != null)
+            {
+                // Сохраняем новое изображение
+                newImagePath = await SaveImageFile(newImageFile);
+                if (!string.IsNullOrEmpty(newImagePath))
+                {
+                    Part!.ImagePath = newImagePath;
+                    
+                    // Удаляем старое изображение, если оно было
+                    if (!string.IsNullOrEmpty(originalImagePath))
+                    {
+                        await DeleteImageFile(originalImagePath);
+                    }
+                }
+            }
+            else if (imageMarkedForDeletion && !string.IsNullOrEmpty(originalImagePath))
+            {
+                // Если изображение помечено для удаления
+                Part!.ImagePath = null;
+                await DeleteImageFile(originalImagePath);
+            }
+            // Если изображение не менялось, оставляем оригинальный путь
+
+            using var context = DbFactory.CreateDbContext();
+            
+            // Получаем существующую запчасть
+            var existingPart = await context.Parts.FindAsync(Part!.PartId);
+            if (existingPart == null)
+            {
+                NavigationManager.NavigateTo("/parts/details");
+                return;
+            }
+            
+            // Обновляем поля
+            existingPart.Name = Part.Name;
+            existingPart.Article = Part.Article;
+            existingPart.ManufacturerId = Part.ManufacturerId;
+            existingPart.CategoryId = Part.CategoryId;
+            existingPart.Price = Part.Price;
+            existingPart.StockQuantity = Part.StockQuantity;
+            existingPart.Description = Part.Description;
+            existingPart.ImagePath = Part.ImagePath;
+
+            await context.SaveChangesAsync();
+            
+            // Перенаправляем на страницу деталей
+            NavigationManager.NavigateTo($"/parts/details?partid={Part.PartId}");
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            imageError = "Запчасть была изменена другим пользователем. Обновите страницу.";
+        }
+        catch (Exception ex)
+        {
+            imageError = $"Ошибка при сохранении: {ex.Message}";
+        }
+        finally
+        {
+            IsSaving = false;
+            StateHasChanged();
+        }
+    }
+}

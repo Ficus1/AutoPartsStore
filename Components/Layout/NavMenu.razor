@@ -1,0 +1,131 @@
+﻿@implements IDisposable
+@using Microsoft.AspNetCore.Authorization
+
+@inject NavigationManager NavigationManager
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="">Магазин автозапчастей</a>
+    </div>
+</div>
+
+<AuthorizeView Roles="Administrator,Manager" Context="authContext">
+
+</AuthorizeView>
+<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <nav class="nav flex-column">
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Главная
+            </NavLink>
+        </div>
+        <AuthorizeView Roles="Administrator,Manager" Context="authContext">
+    <div class="nav-item px-3">
+        <NavLink class="nav-link d-flex align-items-center" href="categories">
+            <span class="bi bi-list-ul fs-5 me-2" style="line-height: 1; margin-top: -2px;"></span> Категории
+        </NavLink>
+    </div>
+    <div class="nav-item px-3">
+        <NavLink class="nav-link d-flex align-items-center" href="manufacturers">
+            <span class="bi bi-buildings fs-5 me-2" style="line-height: 1; margin-top: -2px;"></span> Производители
+        </NavLink>
+    </div>
+    <div class="nav-item px-3">
+        <NavLink class="nav-link d-flex align-items-center" href="parts">
+            <span class="bi bi-gear fs-5 me-2" style="line-height: 1; margin-top: -2px;"></span> Запчасти
+        </NavLink>
+    </div>
+</AuthorizeView>
+
+<div class="nav-item px-3">
+    <NavLink class="nav-link d-flex align-items-center" href="cart">
+        <span class="bi bi-cart fs-5 me-2" style="line-height: 1; margin-top: -2px;"></span> Корзина
+    </NavLink>
+</div>
+
+<div class="nav-item px-3">
+    <NavLink class="nav-link d-flex align-items-center" href="orders">
+        <span class="bi bi-box-seam fs-5 me-2" style="line-height: 1; margin-top: -2px;"></span> Заказы
+    </NavLink>
+</div>
+
+<AuthorizeView Roles="Administrator,Manager" Context="authContext">
+    <div class="nav-item px-3">
+        <NavLink class="nav-link d-flex align-items-center" href="exportexcel">
+            <span class="bi bi-upload fs-5 me-2" style="line-height: 1; margin-top: -2px;"></span> Экспорт Excel
+        </NavLink>
+    </div>
+    <div class="nav-item px-3">
+        <NavLink class="nav-link d-flex align-items-center" href="importexcel">
+            <span class="bi bi-download fs-5 me-2" style="line-height: 1; margin-top: -2px;"></span> Импорт Excel
+        </NavLink>
+    </div>
+    <div class="nav-item px-3">
+        <NavLink class="nav-link" href="statistics">
+            <span class="bi bi-graph-up-arrow fs-5 me-2" style="line-height: 1; margin-top: -2px;" aria-hidden="true"></span> Статистика
+        </NavLink>
+    </div>
+</AuthorizeView>
+<AuthorizeView Roles="Administrator" Context="authContext">
+    <div class="nav-item px-3">
+        <NavLink class="nav-link" href="/admin/users">
+            <span class="bi bi-file-person fs-5 me-2" style="line-height: 1; margin-top: -2px;" aria-hidden="true"></span> Пользователи
+        </NavLink>
+    </div>
+</AuthorizeView>
+        <AuthorizeView>
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Account/Manage">
+                        <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> @context.User.Identity?.Name
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <form action="Account/Logout" method="post">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="ReturnUrl" value="@currentUrl" />
+                        <button type="submit" class="nav-link">
+                            <span class="bi bi-arrow-bar-left-nav-menu" aria-hidden="true"></span> Выйти
+                        </button>
+                    </form>
+                </div>
+            </Authorized>
+            <NotAuthorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Account/Register">
+                        <span class="bi bi-person-nav-menu" aria-hidden="true"></span> Регистрация
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Account/Login">
+                        <span class="bi bi-person-badge-nav-menu" aria-hidden="true"></span> Авторизация
+                    </NavLink>
+                </div>
+            </NotAuthorized>
+        </AuthorizeView>
+    </nav>
+</div>
+
+@code {
+    private string? currentUrl;
+
+    protected override void OnInitialized()
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(e.Location);
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+    }
+}
+

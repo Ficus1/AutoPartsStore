@@ -1,0 +1,632 @@
+﻿@page "/parts/details"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>@(part?.Name ?? "Детали запчасти")</PageTitle>
+
+<CascadingAuthenticationState>
+    <AuthorizeView>
+        <NotAuthorized>
+            <!-- Если пользователь не авторизован, показываем этот контент -->
+        </NotAuthorized>
+    </AuthorizeView>
+</CascadingAuthenticationState>
+
+<div class="container mt-4">
+    <!-- Заголовок и кнопки навигации -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="mb-0">
+                <i class="bi bi-gear-fill text-primary me-2"></i>
+                @(part?.Name ?? "Детали запчасти")
+            </h2>
+            @if (part != null)
+            {
+                <div class="text-muted mt-1">
+                    Артикул: <span class="badge bg-secondary">@part.Article</span>
+                    @if (manufacturer != null)
+                    {
+                        <span class="ms-3">Производитель: @manufacturer.Name</span>
+                    }
+                </div>
+            }
+        </div>
+        
+        <div class="d-flex align-items-center gap-2">
+            <!-- Ссылка на корзину для авторизованных пользователей -->
+            @if (isAuthenticated)
+            {
+                <a href="/cart" class="btn btn-sm btn-success" title="Перейти в корзину">
+                    <i class="bi bi-cart3 me-1"></i> Корзина
+                </a>
+            }
+            
+            <!-- Кнопка "На главную" - видна всем -->
+            <a href="/" class="btn btn-outline-primary">
+                <i class="bi bi-house-door me-1"></i>На главную
+            </a>
+        </div>
+    </div>
+
+    <!-- Общее уведомление (ошибки, предупреждения) -->
+    @if (errorMessage != null)
+    {
+        <div class="alert alert-danger">
+            <div class="d-flex">
+                <i class="bi bi-exclamation-triangle-fill me-2 fs-4"></i>
+                <div>
+                    <strong>Ошибка:</strong> @errorMessage
+                    <div class="mt-2">
+                        <button @onclick="GoBack" class="btn btn-sm btn-outline-primary">Назад</button>
+                        <a href="/" class="btn btn-sm btn-outline-secondary ms-1">На главную</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (part is null)
+    {
+        <div class="text-center mt-5">
+            <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-3 fs-5 text-muted">Загрузка информации о запчасти...</p>
+        </div>
+    }
+    else
+    {
+        <div class="row">
+            <!-- Левая колонка - изображение -->
+            <div class="col-md-5 mb-4">
+                <div class="card shadow-sm">
+                    <div class="card-body p-4">
+                        <div class="text-center">
+                            @if (!string.IsNullOrEmpty(part.ImagePath))
+                            {
+                                <img src="@part.ImagePath" 
+                                     class="img-fluid rounded" 
+                                     style="max-height: 350px; width: 100%; object-fit: contain;" 
+                                     alt="@part.Name"
+                                     onerror="this.onerror=null;this.src='/images/no-image.png';" />
+                            }
+                            else
+                            {
+                                <div class="d-flex flex-column align-items-center justify-content-center" style="height: 300px;">
+                                    <i class="bi bi-car-front-fill text-light" style="font-size: 5rem; color: #6c757d;"></i>
+                                    <p class="text-muted mt-3">Изображение отсутствует</p>
+                                </div>
+                            }
+                        </div>
+                        
+                        <!-- Цена - крупно и заметно -->
+                        <div class="mt-4 pt-3 border-top text-center">
+                            <div class="display-5 fw-bold text-primary">@part.Price.ToString("N2") ₽</div>
+                            <div class="text-muted small mt-1">цена за единицу</div>
+                            
+                            <!-- Статус наличия (теперь не меняется) -->
+                            <div class="mt-3">
+                                <span class="badge @GetStockBadgeClass(part.StockQuantity) fs-6 px-3 py-2">
+                                    @if (part.StockQuantity > 0)
+                                    {
+                                        <i class="bi bi-check-circle me-1"></i>
+                                        <text>В наличии</text>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-x-circle me-1"></i>
+                                        <text>Нет в наличии</text>
+                                    }
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Правая колонка - детальная информация -->
+            <div class="col-md-7">
+                <div class="card shadow-sm">
+                    <div class="card-body p-4">
+                        <!-- Основные характеристики -->
+                        <div class="mb-4">
+                            <h4 class="mb-3 border-bottom pb-2">
+                                <i class="bi bi-info-circle text-primary me-2"></i>Характеристики
+                            </h4>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <div class="text-muted small">Производитель</div>
+                                        <div class="fw-semibold fs-5">
+                                            @(manufacturer?.Name ?? "Не указан")
+                                            @if (!string.IsNullOrEmpty(manufacturer?.Country))
+                                            {
+                                                <span class="text-muted fs-6 ms-2">(@manufacturer.Country)</span>
+                                            }
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <div class="text-muted small">Категория</div>
+                                        <div class="fw-semibold fs-5">
+                                            @(category?.Name ?? "Не указана")
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <div class="text-muted small">Артикул</div>
+                                        <div class="fw-semibold fs-5">@part.Article</div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <div class="text-muted small">Количество на складе</div>
+                                        <div class="fw-semibold fs-5">
+                                            @if (part.StockQuantity > 0)
+                                            {
+                                                <span class="text-success">@part.StockQuantity шт.</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-danger">0 шт.</span>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Описание -->
+                        @if (!string.IsNullOrEmpty(part.Description))
+                        {
+                            <div class="mb-4">
+                                <h4 class="mb-3 border-bottom pb-2">
+                                    <i class="bi bi-card-text text-primary me-2"></i>Описание
+                                </h4>
+                                <div class="p-3 bg-light rounded">
+                                    @part.Description
+                                </div>
+                            </div>
+                        }
+
+                        <!-- Дополнительная информация -->
+                        <div class="mb-4">
+                            <h4 class="mb-3 border-bottom pb-2">
+                                <i class="bi bi-clipboard-check text-primary me-2"></i>Дополнительно
+                            </h4>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="d-flex align-items-center mb-2">
+                                        <i class="bi bi-check2-circle text-success me-2"></i>
+                                        <span class="text-muted">Гарантия качества</span>
+                                    </div>
+                                    <div class="d-flex align-items-center mb-2">
+                                        <i class="bi bi-truck text-info me-2"></i>
+                                        <span class="text-muted">Доставка 1-3 дня</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="d-flex align-items-center mb-2">
+                                        <i class="bi bi-shield-check text-warning me-2"></i>
+                                        <span class="text-muted">Оригинальная запчасть</span>
+                                    </div>
+                                    <div class="d-flex align-items-center mb-2">
+                                        <i class="bi bi-arrow-repeat text-secondary me-2"></i>
+                                        <span class="text-muted">Возврат в течение 14 дней</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Уведомление о добавлении в корзину -->
+                        @if (!string.IsNullOrEmpty(cartNotificationMessage))
+                        {
+                            <div class="mb-3">
+                                <div class="alert @(isCartNotificationError ? "alert-danger" : "alert-success") alert-dismissible fade show py-2" role="alert">
+                                    @cartNotificationMessage
+                                    <button type="button" class="btn-close" @onclick="DismissCartNotification"></button>
+                                </div>
+                            </div>
+                        }
+
+                        <!-- Кнопки действий -->
+                        <div class="mt-4 pt-3 border-top">
+                            <div class="row">
+                                <div class="col">
+                                    <div class="d-flex gap-2">
+                                        <button @onclick="GoBack" class="btn btn-outline-secondary">
+                                            <i class="bi bi-arrow-left me-1"></i>Назад
+                                        </button>
+                                        
+                                        <AuthorizeView Roles="Administrator,Manager">
+                                            <a href="/parts" class="btn btn-outline-info">
+                                                <i class="bi bi-list-ul me-1"></i>К списку товаров
+                                            </a>
+                                            <a href="@($"/parts/edit?partid={part.PartId}")" class="btn btn-primary">
+                                                <i class="bi bi-pencil-square me-1"></i>Редактировать
+                                            </a>
+                                        </AuthorizeView>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-auto">
+                                    <!-- Кнопка добавления в корзину -->
+                                    @if (part.StockQuantity > 0)
+                                    {
+                                        @if (isAuthenticated)
+                                        {
+                                            <button class="btn btn-success" 
+                                                    @onclick="AddToCartAsync"
+                                                    disabled="@(isAddingToCart)">
+                                                @if (isAddingToCart)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                                    <span>Добавление...</span>
+                                                }
+                                                else
+                                                {
+                                                    <i class="bi bi-cart-plus me-1"></i>
+                                                    <span>Добавить в корзину</span>
+                                                }
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-success" @onclick="RedirectToLogin">
+                                                <i class="bi bi-person me-1"></i>Войти для покупки
+                                            </button>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-secondary" disabled>
+                                            <i class="bi bi-cart-x me-1"></i>Нет в наличии
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Part? part;
+    private Manufacturer? manufacturer;
+    private Category? category;
+    private string? errorMessage;
+    private bool isNavigatingBack = false;
+    
+    // Аутентификация и корзина
+    private bool isAuthenticated = false;
+    private string? currentUserId;
+    private bool isAddingToCart = false;
+    
+    // Уведомления
+    private string cartNotificationMessage = string.Empty;
+    private bool isCartNotificationError = false;
+    private Timer? notificationTimer;
+
+    [SupplyParameterFromQuery]
+    private int PartId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (PartId <= 0)
+        {
+            errorMessage = "Не указан ID запчасти";
+            return;
+        }
+
+        await CheckAuthenticationAsync();
+        await LoadPartData();
+    }
+    
+    private async Task CheckAuthenticationAsync()
+    {
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            isAuthenticated = user.Identity?.IsAuthenticated ?? false;
+            
+            if (isAuthenticated)
+            {
+                currentUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка проверки аутентификации: {ex.Message}");
+        }
+    }
+
+    private async Task LoadPartData()
+    {
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            part = await context.Parts
+                .FirstOrDefaultAsync(m => m.PartId == PartId);
+
+            if (part is null)
+            {
+                errorMessage = "Запчасть не найдена";
+                return;
+            }
+
+            // Загружаем производителя и категорию параллельно для скорости
+            var manufacturerTask = context.Manufacturers
+                .FirstOrDefaultAsync(m => m.ManufacturerId == part.ManufacturerId);
+                
+            var categoryTask = context.Categories
+                .FirstOrDefaultAsync(c => c.CategoryId == part.CategoryId);
+
+            await Task.WhenAll(manufacturerTask, categoryTask);
+            
+            manufacturer = await manufacturerTask;
+            category = await categoryTask;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при загрузке данных: {ex.Message}";
+        }
+    }
+    
+    private async Task AddToCartAsync()
+    {
+        if (!isAuthenticated || part == null)
+        {
+            await ShowCartNotification("Для добавления товаров в корзину необходимо войти в систему", true);
+            NavigationManager.NavigateTo($"/Account/Login?returnUrl={Uri.EscapeDataString(NavigationManager.Uri)}");
+            return;
+        }
+        
+        if (part.StockQuantity <= 0)
+        {
+            await ShowCartNotification("Товар временно отсутствует на складе", true);
+            return;
+        }
+        
+        // Блокируем повторные нажатия
+        if (isAddingToCart)
+            return;
+            
+        isAddingToCart = true;
+        StateHasChanged();
+        
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            // Загружаем актуальные данные о товаре из базы
+            var dbPart = await context.Parts
+                .FirstOrDefaultAsync(p => p.PartId == part.PartId);
+                
+            if (dbPart == null || dbPart.StockQuantity <= 0)
+            {
+                await ShowCartNotification("Товар временно отсутствует на складе", true);
+                return;
+            }
+            
+            // Проверяем, есть ли уже этот товар в корзине пользователя
+            var existingCartItem = await context.CartItems
+                .FirstOrDefaultAsync(ci => ci.UserId == currentUserId && ci.PartId == part.PartId);
+            
+            // Рассчитываем общее количество в корзине и на складе
+            int totalInCart = existingCartItem?.Quantity ?? 0;
+            int availableOnStock = dbPart.StockQuantity;
+            
+            // Проверяем, чтобы общее количество в корзине не превышало наличие на складе
+            // (добавляем 1 единицу)
+            if (totalInCart + 1 > availableOnStock)
+            {
+                await ShowCartNotification($"Достигнуто максимальное количество товара на складе ({availableOnStock} шт.)", true);
+                return;
+            }
+            
+            if (existingCartItem != null)
+            {
+                // Увеличиваем количество существующего товара в корзине
+                existingCartItem.Quantity += 1;
+                existingCartItem.Price = dbPart.Price;
+                existingCartItem.AddedDate = DateTime.Now;
+            }
+            else
+            {
+                // Создаем новую запись в корзине
+                var cartItem = new CartItem
+                {
+                    UserId = currentUserId!,
+                    PartId = part.PartId,
+                    Quantity = 1,
+                    Price = dbPart.Price,
+                    AddedDate = DateTime.Now
+                };
+                context.CartItems.Add(cartItem);
+            }
+            
+            await context.SaveChangesAsync();
+            
+            await ShowCartNotification($"Товар \"{part.Name}\" добавлен в корзину");
+        }
+        catch (DbUpdateException dbEx)
+        {
+            await ShowCartNotification("Ошибка при добавлении товара в корзину. Возможно, товара нет в наличии.", true);
+        }
+        catch (Exception ex)
+        {
+            await ShowCartNotification("Ошибка при добавлении товара в корзину", true);
+        }
+        finally
+        {
+            isAddingToCart = false;
+            StateHasChanged();
+        }
+    }
+    
+    private async Task ShowCartNotification(string message, bool error = false)
+    {
+        cartNotificationMessage = message;
+        isCartNotificationError = error;
+        
+        // Автоматически скрываем уведомление через 5 секунд
+        notificationTimer?.Dispose();
+        notificationTimer = new Timer(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                cartNotificationMessage = string.Empty;
+                StateHasChanged();
+            });
+        }, null, 5000, Timeout.Infinite);
+        
+        await InvokeAsync(StateHasChanged);
+    }
+    
+    private void DismissCartNotification()
+    {
+        cartNotificationMessage = string.Empty;
+        notificationTimer?.Dispose();
+        StateHasChanged();
+    }
+    
+    private void RedirectToLogin()
+    {
+        NavigationManager.NavigateTo($"/Account/Login?returnUrl={Uri.EscapeDataString(NavigationManager.Uri)}");
+    }
+
+    private string GetStockBadgeClass(int quantity)
+    {
+        if (quantity > 10)
+            return "bg-success";
+        else if (quantity > 0)
+            return "bg-warning text-dark";
+        else
+            return "bg-danger";
+    }
+
+    private async Task GoBack()
+    {
+        // Предотвращаем множественные клики
+        if (isNavigatingBack) return;
+        
+        isNavigatingBack = true;
+        
+        try
+        {
+            // Используем JavaScript для возврата на предыдущую страницу
+            // Это работает лучше, чем NavigationManager
+            await JS.InvokeVoidAsync("history.back");
+            
+            // Если history.back() не сработал (например, пользователь зашел по прямой ссылке),
+            // через 500ms переходим на главную страницу
+            await Task.Delay(500);
+            
+            // Если мы все еще на этой странице, переходим на главную
+            if (!NavigationManager.Uri.Contains("parts/details"))
+            {
+                return;
+            }
+            
+            // Пробуем вернуться на список товаров, если есть доступ
+            NavigationManager.NavigateTo("/parts");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при возврате назад: {ex.Message}");
+            NavigationManager.NavigateTo("/parts");
+        }
+        finally
+        {
+            isNavigatingBack = false;
+        }
+    }
+    
+    public void Dispose()
+    {
+        notificationTimer?.Dispose();
+    }
+}
+
+<style>
+    .alert-success {
+        background-color: #d1e7dd;
+        border-color: #badbcc;
+        color: #0f5132;
+    }
+    
+    .alert-danger {
+        background-color: #f8d7da;
+        border-color: #f5c2c7;
+        color: #842029;
+    }
+    
+    .alert {
+        animation: slideIn 0.3s ease-out;
+    }
+    
+    .btn-success {
+        background-color: #198754;
+        border-color: #198754;
+    }
+    
+    .btn-success:hover {
+        background-color: #157347;
+        border-color: #146c43;
+    }
+    
+    .btn-success:disabled {
+        background-color: #198754;
+        border-color: #198754;
+        opacity: 0.65;
+    }
+    
+    @@keyframes slideIn {
+        from {
+            transform: translateY(-10px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+    
+    .spinner-border {
+        width: 1rem;
+        height: 1rem;
+        border-width: 0.15em;
+    }
+    
+    .badge.bg-success {
+        background-color: #198754 !important;
+    }
+    
+    .badge.bg-warning {
+        background-color: #ffc107 !important;
+        color: #000 !important;
+    }
+    
+    .badge.bg-danger {
+        background-color: #dc3545 !important;
+    }
+    
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+</style>

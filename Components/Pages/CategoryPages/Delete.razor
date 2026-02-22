@@ -1,0 +1,153 @@
+﻿@page "/categories/delete"
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Administrator,Manager")]
+
+<PageTitle>Удаление категории</PageTitle>
+
+<div class="container mt-4">
+    <h2>Удаление категории</h2>
+    
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger mt-3">
+            <strong>Ошибка:</strong> @errorMessage
+            <div class="mt-2">
+                <a href="/categories" class="btn btn-sm btn-outline-primary">Назад к списку</a>
+            </div>
+        </div>
+    }
+    else if (category is null)
+    {
+        <div class="text-center mt-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-2">Загрузка данных...</p>
+        </div>
+    }
+    else
+    {
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">Информация о категории</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Название:</strong> @category.Name</p>
+                    </div>
+                    <div class="col-md-6">
+                        @if (!string.IsNullOrEmpty(category.Description))
+                        {
+                            <p><strong>Описание:</strong> @category.Description</p>
+                        }
+                        else
+                        {
+                            <p><strong>Описание:</strong> <span class="text-muted">Не указано</span></p>
+                        }
+                    </div>
+                </div>
+                
+                @if (hasParts)
+                {
+                    <div class="alert alert-warning mt-3">
+                        <p class="mb-0">
+                            <strong>Нельзя удалить:</strong> В этой категории есть запчасти (@partsCount шт.).
+                            Сначала удалите или переместите все запчасти из этой категории.
+                        </p>
+                    </div>
+                    <div class="mt-3">
+                        <a href="/categories" class="btn btn-primary">Вернуться к списку</a>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-danger mt-3">
+                        <p class="mb-0">
+                            <strong>Внимание!</strong> После удаления восстановить данные будет невозможно.
+                        </p>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <EditForm Model="category" OnSubmit="DeleteCategory" FormName="deleteForm">
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-danger">Удалить</button>
+                                <a href="/categories" class="btn btn-outline-secondary">Отмена</a>
+                            </div>
+                        </EditForm>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Category? category;
+    private string? errorMessage;
+    private bool hasParts = false;
+    private int partsCount = 0;
+
+    [SupplyParameterFromQuery]
+    private int CategoryId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (CategoryId <= 0)
+        {
+            errorMessage = "Не указан ID категории";
+            return;
+        }
+
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            category = await context.Categories
+                .FirstOrDefaultAsync(m => m.CategoryId == CategoryId);
+
+            if (category is null)
+            {
+                errorMessage = "Категория не найдена";
+                return;
+            }
+            
+            // Проверяем, есть ли связанные запчасти
+            partsCount = await context.Parts
+                .CountAsync(p => p.CategoryId == category.CategoryId);
+            
+            hasParts = partsCount > 0;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при загрузке данных: {ex.Message}";
+        }
+    }
+
+    private async Task DeleteCategory()
+    {
+        if (category is null || hasParts) return;
+
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            var categoryToDelete = await context.Categories.FindAsync(category.CategoryId);
+            
+            if (categoryToDelete != null)
+            {
+                context.Categories.Remove(categoryToDelete);
+                await context.SaveChangesAsync();
+                NavigationManager.NavigateTo("/categories");
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при удалении: {ex.Message}";
+        }
+    }
+}

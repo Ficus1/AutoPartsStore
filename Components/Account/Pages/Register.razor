@@ -1,0 +1,271 @@
+﻿@page "/Account/Register"
+
+@using System.ComponentModel.DataAnnotations
+@using System.Text
+@using System.Text.Encodings.Web
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using AutoPartsStore.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IUserStore<ApplicationUser> UserStore
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IEmailSender<ApplicationUser> EmailSender
+@inject ILogger<Register> Logger
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+@inject RoleManager<IdentityRole> RoleManager
+
+<PageTitle>Регистрация</PageTitle>
+
+<h1>Регистрация</h1>
+
+<div class="row">
+    <div class="col-lg-8">
+        <StatusMessage Message="@Message" />
+        <EditForm Model="Input" method="post" OnValidSubmit="RegisterUser" FormName="register">
+            <DataAnnotationsValidator />
+            <h2>Создание нового аккаунта</h2>
+            <hr />
+            <ValidationSummary class="text-danger" role="alert" />
+            
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-floating mb-3">
+                        <InputText @bind-Value="Input.FirstName" id="Input.FirstName" class="form-control" autocomplete="given-name" aria-required="true" placeholder="Иван" />
+                        <label for="Input.FirstName">Имя *</label>
+                        <ValidationMessage For="() => Input.FirstName" class="text-danger" />
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-floating mb-3">
+                        <InputText @bind-Value="Input.LastName" id="Input.LastName" class="form-control" autocomplete="family-name" aria-required="true" placeholder="Иванов" />
+                        <label for="Input.LastName">Фамилия *</label>
+                        <ValidationMessage For="() => Input.LastName" class="text-danger" />
+                    </div>
+                </div>
+            </div>
+            
+            <div class="form-floating mb-3">
+                <InputText @bind-Value="Input.MiddleName" id="Input.MiddleName" class="form-control" autocomplete="additional-name" placeholder="Иванович" />
+                <label for="Input.MiddleName">Отчество</label>
+                        <ValidationMessage For="() => Input.MiddleName" class="text-danger" />
+            </div>
+            
+            <div class="form-floating mb-3">
+                <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
+                <label for="Input.Email">Email *</label>
+                <ValidationMessage For="() => Input.Email" class="text-danger" />
+            </div>
+
+            <div class="form-floating mb-3">
+                <InputText @bind-Value="Input.PhoneNumber" id="Input.PhoneNumber" class="form-control" autocomplete="tel" aria-required="true" placeholder="+79991234567" />
+                <label for="Input.PhoneNumber">Номер телефона *</label>
+                <ValidationMessage For="() => Input.PhoneNumber" class="text-danger" />
+            </div>
+            
+            <div class="form-floating mb-3">
+                <InputTextArea @bind-Value="Input.Address" id="Input.Address" class="form-control" autocomplete="street-address" aria-required="true" placeholder="ул. Ленина, д. 1, кв. 10" rows="3" />
+                <label for="Input.Address">Адрес доставки *</label>
+                <ValidationMessage For="() => Input.Address" class="text-danger" />
+            </div>
+            
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-floating mb-3">
+                        <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
+                        <label for="Input.Password">Пароль *</label>
+                        <ValidationMessage For="() => Input.Password" class="text-danger" />
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-floating mb-3">
+                        <InputText type="password" @bind-Value="Input.ConfirmPassword" id="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
+                        <label for="Input.ConfirmPassword">Подтверждение пароля *</label>
+                        <ValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
+                    </div>
+                </div>
+            </div>
+            
+            <div class="alert alert-info" role="alert">
+                <small>* Поля, обязательные для заполнения</small>
+                <br />
+                <small>Пароль должен содержать не менее 6 символов, включать заглавные и строчные буквы, а также цифры</small>
+            </div>
+            
+            <button type="submit" class="w-100 btn btn-lg btn-primary">Зарегистрироваться</button>
+        </EditForm>
+    </div>
+    <div class="col-lg-4">
+        <section>
+            <h3>Войти через социальные сети</h3>
+            <hr />
+            <ExternalLoginPicker />
+        </section>
+    </div>
+</div>
+
+@code {
+    private IEnumerable<IdentityError>? identityErrors;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private string? Message => identityErrors is null ? null : $"Ошибка: {string.Join(", ", identityErrors.Select(error => error.Description))}";
+
+    protected override void OnInitialized()
+    {
+        Input ??= new();
+    }
+
+    public async Task RegisterUser(EditContext editContext)
+    {
+        var user = CreateUser();
+
+        // Устанавливаем дополнительные поля пользователя
+        user.LastName = Input.LastName;
+        user.FirstName = Input.FirstName;
+        user.MiddleName = Input.MiddleName;
+        user.Address = Input.Address;
+        user.PhoneNumber = Input.PhoneNumber; // Добавляем номер телефона
+        user.PhoneNumberConfirmed = true; // Подтверждаем номер телефона при регистрации
+        user.RegistrationDate = DateTime.Now;
+
+        await UserStore.SetUserNameAsync(user, Input.Email, CancellationToken.None);
+        var emailStore = GetEmailStore();
+        await emailStore.SetEmailAsync(user, Input.Email, CancellationToken.None);
+        var result = await UserManager.CreateAsync(user, Input.Password);
+
+        if (!result.Succeeded)
+        {
+            identityErrors = result.Errors;
+            return;
+        }
+
+        Logger.LogInformation("Пользователь создал новый аккаунт с паролем.");
+
+        // Добавляем пользователю роль Customer
+        await AddUserToCustomerRole(user);
+
+        var userId = await UserManager.GetUserIdAsync(user);
+        var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
+        code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+        var callbackUrl = NavigationManager.GetUriWithQueryParameters(
+            NavigationManager.ToAbsoluteUri("Account/ConfirmEmail").AbsoluteUri,
+            new Dictionary<string, object?> { ["userId"] = userId, ["code"] = code, ["returnUrl"] = ReturnUrl });
+
+        await EmailSender.SendConfirmationLinkAsync(user, Input.Email, HtmlEncoder.Default.Encode(callbackUrl));
+
+        if (UserManager.Options.SignIn.RequireConfirmedAccount)
+        {
+            RedirectManager.RedirectTo(
+                "Account/RegisterConfirmation",
+                new() { ["email"] = Input.Email, ["returnUrl"] = ReturnUrl });
+        }
+        else
+        {
+            await SignInManager.SignInAsync(user, isPersistent: false);
+            RedirectManager.RedirectTo(ReturnUrl);
+        }
+    }
+
+    private async Task AddUserToCustomerRole(ApplicationUser user)
+    {
+        try
+        {
+            // Проверяем, существует ли роль Customer
+            if (!await RoleManager.RoleExistsAsync("Customer"))
+            {
+                // Создаем роль Customer, если её нет
+                await RoleManager.CreateAsync(new IdentityRole("Customer"));
+                Logger.LogInformation("Создана роль Customer");
+            }
+
+            // Добавляем пользователя в роль Customer
+            var result = await UserManager.AddToRoleAsync(user, "Customer");
+            
+            if (result.Succeeded)
+            {
+                Logger.LogInformation("Пользователь {Email} добавлен в роль Customer", user.Email);
+            }
+            else
+            {
+                Logger.LogError("Ошибка добавления пользователя в роль Customer: {Errors}", 
+                    string.Join(", ", result.Errors.Select(e => e.Description)));
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Ошибка при добавлении пользователя в роль Customer");
+        }
+    }
+
+    private ApplicationUser CreateUser()
+    {
+        try
+        {
+            return Activator.CreateInstance<ApplicationUser>();
+        }
+        catch
+        {
+            throw new InvalidOperationException($"Не удалось создать экземпляр '{nameof(ApplicationUser)}'. " +
+                $"Убедитесь, что '{nameof(ApplicationUser)}' не является абстрактным классом и имеет конструктор без параметров.");
+        }
+    }
+
+    private IUserEmailStore<ApplicationUser> GetEmailStore()
+    {
+        if (!UserManager.SupportsUserEmail)
+        {
+            throw new NotSupportedException("Текущий UI требует хранилище пользователей с поддержкой email.");
+        }
+        return (IUserEmailStore<ApplicationUser>)UserStore;
+    }
+
+    private sealed class InputModel
+    {
+        [Required(ErrorMessage = "Укажите фамилию!")]
+        [StringLength(50, ErrorMessage = "Фамилия не должна превышать 50 символов")]
+        [Display(Name = "Фамилия")]
+        public string LastName { get; set; } = "";
+
+        [Required(ErrorMessage = "Укажите имя!")]
+        [StringLength(50, ErrorMessage = "Имя не должно превышать 50 символов")]
+        [Display(Name = "Имя")]
+        public string FirstName { get; set; } = "";
+
+        [StringLength(50, ErrorMessage = "Отчество не должно превышать 50 символов")]
+        [Display(Name = "Отчество")]
+        public string? MiddleName { get; set; }
+
+        [Required(ErrorMessage = "Укажите адрес доставки!")]
+        [StringLength(500, ErrorMessage = "Адрес не должен превышать 500 символов")]
+        [Display(Name = "Адрес доставки")]
+        public string Address { get; set; } = "";
+
+        [Required(ErrorMessage = "Укажите email!")]
+        [EmailAddress(ErrorMessage = "Неверный формат email")]
+        [Display(Name = "Email")]
+        public string Email { get; set; } = "";
+
+        [Required(ErrorMessage = "Укажите номер телефона!")]
+        [Phone(ErrorMessage = "Неверный формат номера телефона")]
+        [StringLength(20, ErrorMessage = "Номер телефона не должен превышать 20 символов")]
+        [Display(Name = "Номер телефона")]
+        public string PhoneNumber { get; set; } = "";
+
+        [Required(ErrorMessage = "Укажите пароль!")]
+        [StringLength(100, ErrorMessage = "Пароль должен содержать от {2} до {1} символов", MinimumLength = 6)]
+        [DataType(DataType.Password)]
+        [Display(Name = "Пароль")]
+        public string Password { get; set; } = "";
+
+        [DataType(DataType.Password)]
+        [Display(Name = "Подтверждение пароля")]
+        [Compare("Password", ErrorMessage = "Пароли не совпадают")]
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

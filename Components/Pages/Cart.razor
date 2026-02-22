@@ -1,0 +1,419 @@
+@page "/cart"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Identity
+@attribute [Authorize]
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>Корзина</PageTitle>
+
+<h1>Корзина</h1>
+<hr />
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger" id="error-message">
+        @errorMessage
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(successMessage))
+{
+    <div class="alert alert-success" id="success-message">
+        @successMessage
+    </div>
+}
+
+@if (!cartItems.Any())
+{
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <i class="bi bi-cart-x text-muted" style="font-size: 4rem;"></i>
+            <h3 class="text-muted mt-3">Ваша корзина пуста</h3>
+            <p class="text-muted">Добавьте товары в корзину для оформления заказа</p>
+            <a @onclick="GoToProducts" class="btn btn-primary btn-lg mt-3">
+                <i class="bi bi-box-seam me-2"></i>Перейти к товарам
+            </a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card shadow mb-4">
+                <div class="card-header bg-light">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Товары в корзине</h5>
+                        <span class="badge bg-primary">
+                            @cartItems.Count товар(ов)
+                        </span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Товар</th>
+                                    <th>Цена</th>
+                                    <th>Количество</th>
+                                    <th>Сумма</th>
+                                    <th>Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in cartItems)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="d-flex align-items-center">
+                                                @if (!string.IsNullOrEmpty(item.Part?.ImagePath))
+                                                {
+                                                    <img src="@item.Part.ImagePath" 
+                                                         class="img-thumbnail me-3" 
+                                                         style="width: 80px; height: 80px; object-fit: contain;" 
+                                                         alt="@item.Part?.Name" />
+                                                }
+                                                else
+                                                {
+                                                    <div class="img-thumbnail me-3 d-flex align-items-center justify-content-center" 
+                                                         style="width: 80px; height: 80px; background-color: #f8f9fa;">
+                                                        <i class="bi bi-image text-muted" style="font-size: 2rem;"></i>
+                                                    </div>
+                                                }
+                                                <div>
+                                                    <h6 class="mb-1">@item.Part?.Name</h6>
+                                                    <small class="text-muted">Артикул: @item.Part?.Article</small>
+                                                    <br>
+                                                    <small class="text-muted">Производитель: @item.Part?.Manufacturer?.Name</small>
+                                                    <br>
+                                                    <small class="text-muted">Доступно: @item.Part?.StockQuantity шт.</small>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="align-middle">
+                                            <span class="fw-bold">@item.Price.ToString("N2") ₽</span>
+                                        </td>
+                                        <td class="align-middle">
+                                            <div class="input-group" style="width: 140px;">
+                                                <button @onclick="() => ChangeQuantity(item, -1)" 
+                                                        class="btn btn-outline-secondary" 
+                                                        type="button"
+                                                        disabled="@(item.Quantity <= 1)">
+                                                    <i class="bi bi-dash"></i>
+                                                </button>
+                                                <input type="number" 
+                                                       class="form-control text-center" 
+                                                       value="@item.Quantity" 
+                                                       @onchange="async (e) => await UpdateQuantityDirect(item, e)"
+                                                       min="1" 
+                                                       max="@item.Part?.StockQuantity"
+                                                       style="max-width: 60px;" />
+                                                <button @onclick="() => ChangeQuantity(item, 1)" 
+                                                        class="btn btn-outline-secondary" 
+                                                        type="button"
+                                                        disabled="@(item.Quantity >= item.Part?.StockQuantity)">
+                                                    <i class="bi bi-plus"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                        <td class="align-middle">
+                                            <strong class="text-primary">@((item.Price * item.Quantity).ToString("N2")) ₽</strong>
+                                        </td>
+                                        <td class="align-middle">
+                                            <button @onclick="() => RemoveItem(item.CartItemId)" 
+                                                    class="btn btn-danger btn-sm">
+                                                <i class="bi bi-trash"></i> Удалить
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="3" class="text-end">
+                                        <strong>Итого:</strong>
+                                    </td>
+                                    <td>
+                                        <strong class="text-primary fs-5">@CalculateTotal().ToString("N2") ₽</strong>
+                                    </td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <div class="d-flex justify-content-between mt-4">
+                        <div>
+                            <button @onclick="ClearCart" 
+                                    class="btn btn-outline-danger"
+                                    disabled="@(!cartItems.Any())">
+                                <i class="bi bi-cart-x me-1"></i>Очистить корзину
+                            </button>
+                        </div>
+                        <div>
+                            <button @onclick="GoToProducts" class="btn btn-outline-secondary me-2">
+                                <i class="bi bi-arrow-left me-1"></i>Продолжить покупки
+                            </button>
+                            <button @onclick="GoToCheckout" 
+                                    class="btn btn-success btn-lg"
+                                    disabled="@(!cartItems.Any())">
+                                <i class="bi bi-cart-check me-1"></i>Оформить заказ
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<CartItem> cartItems = new();
+    private string? errorMessage;
+    private string? successMessage;
+    private string? currentUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                currentUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                await LoadCartItems();
+            }
+            else
+            {
+                NavigationManager.NavigateTo("/Identity/Account/Login", true);
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при загрузке корзины: {ex.Message}";
+        }
+    }
+
+    private async Task LoadCartItems()
+    {
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            cartItems = await context.CartItems
+                .Where(c => c.UserId == currentUserId)
+                .Include(c => c.Part)
+                    .ThenInclude(p => p.Manufacturer)
+                .Include(c => c.Part)
+                    .ThenInclude(p => p.Category)
+                .OrderByDescending(c => c.AddedDate)
+                .ToListAsync();
+                
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при загрузке товаров: {ex.Message}";
+        }
+    }
+
+    private async Task ChangeQuantity(CartItem item, int delta)
+    {
+        var newQuantity = item.Quantity + delta;
+        
+        if (newQuantity < 1)
+        {
+            await RemoveItem(item.CartItemId);
+            return;
+        }
+        
+        if (newQuantity > item.Part?.StockQuantity)
+        {
+            errorMessage = $"Недостаточно товара на складе. Доступно: {item.Part?.StockQuantity} шт.";
+            StateHasChanged();
+            return;
+        }
+        
+        await UpdateQuantity(item.CartItemId, newQuantity);
+    }
+
+    private async Task UpdateQuantityDirect(CartItem item, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var newQuantity))
+        {
+            if (newQuantity < 1)
+            {
+                await RemoveItem(item.CartItemId);
+                return;
+            }
+            
+            if (newQuantity > item.Part?.StockQuantity)
+            {
+                errorMessage = $"Недостаточно товара на складе. Доступно: {item.Part?.StockQuantity} шт.";
+                StateHasChanged();
+                return;
+            }
+            
+            await UpdateQuantity(item.CartItemId, newQuantity);
+        }
+    }
+
+    private async Task UpdateQuantity(int cartItemId, int quantity)
+    {
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            var cartItem = await context.CartItems.FindAsync(cartItemId);
+            
+            if (cartItem != null && cartItem.UserId == currentUserId)
+            {
+                cartItem.Quantity = quantity;
+                await context.SaveChangesAsync();
+                
+                var localItem = cartItems.FirstOrDefault(c => c.CartItemId == cartItemId);
+                if (localItem != null)
+                {
+                    localItem.Quantity = quantity;
+                }
+                
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при обновлении количества: {ex.Message}";
+        }
+    }
+
+    private async Task RemoveItem(int cartItemId)
+    {
+        try
+        {
+            if (!await JS.InvokeAsync<bool>("confirm", "Удалить товар из корзины?"))
+                return;
+            
+            using var context = DbFactory.CreateDbContext();
+            var cartItem = await context.CartItems.FindAsync(cartItemId);
+            
+            if (cartItem != null && cartItem.UserId == currentUserId)
+            {
+                context.CartItems.Remove(cartItem);
+                await context.SaveChangesAsync();
+                
+                cartItems.RemoveAll(c => c.CartItemId == cartItemId);
+                
+                successMessage = "Товар удален из корзины";
+                StateHasChanged();
+                
+                await Task.Delay(3000);
+                successMessage = null;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при удалении товара: {ex.Message}";
+        }
+    }
+
+    private async Task ClearCart()
+    {
+        try
+        {
+            if (!await JS.InvokeAsync<bool>("confirm", "Очистить всю корзину?"))
+                return;
+            
+            using var context = DbFactory.CreateDbContext();
+            var userCartItems = await context.CartItems
+                .Where(c => c.UserId == currentUserId)
+                .ToListAsync();
+            
+            if (userCartItems.Any())
+            {
+                context.CartItems.RemoveRange(userCartItems);
+                await context.SaveChangesAsync();
+                
+                cartItems.Clear();
+                
+                successMessage = "Корзина очищена";
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при очистке корзины: {ex.Message}";
+        }
+    }
+
+    private async Task GoToCheckout()
+    {
+        if (!cartItems.Any())
+        {
+            errorMessage = "Корзина пуста. Добавьте товары для оформления заказа.";
+            StateHasChanged();
+            return;
+        }
+
+        // Проверяем наличие товаров на складе
+        using var context = DbFactory.CreateDbContext();
+        foreach (var item in cartItems)
+        {
+            var part = await context.Parts.FindAsync(item.PartId);
+            if (part == null || part.StockQuantity < item.Quantity)
+            {
+                errorMessage = $"Товар '{item.Part?.Name}' недоступен в нужном количестве. Доступно: {part?.StockQuantity ?? 0} шт.";
+                StateHasChanged();
+                return;
+            }
+        }
+
+        // Сохраняем товары корзины во временное хранилище (например, в localStorage)
+        await SaveCartItemsToTempStorage();
+        
+        // Переходим на страницу создания заказа
+        NavigationManager.NavigateTo("/orders/create?fromCart=true");
+    }
+
+    private async Task SaveCartItemsToTempStorage()
+    {
+        try
+        {
+            // Используем sessionStorage для временного хранения данных корзины
+            var cartData = cartItems.Select(c => new 
+            {
+                c.PartId,
+                c.Quantity,
+                c.Price
+            }).ToList();
+            
+            var json = System.Text.Json.JsonSerializer.Serialize(cartData);
+            await JS.InvokeVoidAsync("sessionStorage.setItem", "pendingCartItems", json);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при сохранении корзины: {ex.Message}");
+        }
+    }
+
+    private decimal CalculateTotal()
+    {
+        return cartItems.Sum(c => c.Price * c.Quantity);
+    }
+
+    private void GoToProducts()
+    {
+        NavigationManager.NavigateTo("/");
+    }
+}

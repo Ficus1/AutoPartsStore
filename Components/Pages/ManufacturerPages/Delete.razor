@@ -1,0 +1,187 @@
+﻿@page "/manufacturers/delete"
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Administrator,Manager")]
+
+<PageTitle>Удаление производителя</PageTitle>
+
+<div class="container mt-4">
+    <h2>Удаление производителя</h2>
+    
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger mt-3">
+            <strong>Ошибка:</strong> @errorMessage
+            <div class="mt-2">
+                <a href="/manufacturers" class="btn btn-sm btn-outline-primary">Назад к списку</a>
+            </div>
+        </div>
+    }
+    else if (manufacturer is null)
+    {
+        <div class="text-center mt-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-2">Загрузка данных...</p>
+        </div>
+    }
+    else
+    {
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">Информация о производителе</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <p><strong>Название:</strong> @manufacturer.Name</p>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <p><strong>Страна:</strong> 
+                                @if (!string.IsNullOrEmpty(manufacturer.Country))
+                                {
+                                    @manufacturer.Country
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Не указана</span>
+                                }
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <p><strong>Описание:</strong> 
+                                @if (!string.IsNullOrEmpty(manufacturer.Description))
+                                {
+                                    @manufacturer.Description
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Не указано</span>
+                                }
+                            </p>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <p><strong>Статус:</strong> 
+                                @if (manufacturer.IsActive)
+                                {
+                                    <span class="badge bg-success">Активен</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-danger">Неактивен</span>
+                                }
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                @if (hasParts)
+                {
+                    <div class="alert alert-warning mt-3">
+                        <p class="mb-0">
+                            <strong>Нельзя удалить:</strong> У этого производителя есть запчасти (@partsCount шт.).
+                            Сначала удалите или переместите все запчасти этого производителя.
+                        </p>
+                    </div>
+                    <div class="mt-3">
+                        <a href="/manufacturers" class="btn btn-primary">Вернуться к списку</a>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-danger mt-3">
+                        <p class="mb-0">
+                            <strong>Внимание!</strong> После удаления восстановить данные будет невозможно.
+                            Вы уверены, что хотите удалить этого производителя?
+                        </p>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <EditForm method="post" Model="manufacturer" OnSubmit="DeleteManufacturer" FormName="deleteForm">
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-danger">Удалить</button>
+                                <a href="/manufacturers" class="btn btn-outline-secondary">Отмена</a>
+                            </div>
+                        </EditForm>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Manufacturer? manufacturer;
+    private string? errorMessage;
+    private bool hasParts = false;
+    private int partsCount = 0;
+
+    [SupplyParameterFromQuery]
+    private int ManufacturerId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (ManufacturerId <= 0)
+        {
+            errorMessage = "Не указан ID производителя";
+            return;
+        }
+
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            manufacturer = await context.Manufacturers
+                .FirstOrDefaultAsync(m => m.ManufacturerId == ManufacturerId);
+
+            if (manufacturer is null)
+            {
+                errorMessage = "Производитель не найден";
+                return;
+            }
+            
+            // Проверяем, есть ли связанные запчасти
+            partsCount = await context.Parts
+                .CountAsync(p => p.ManufacturerId == manufacturer.ManufacturerId);
+            
+            hasParts = partsCount > 0;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при загрузке данных: {ex.Message}";
+        }
+    }
+
+    private async Task DeleteManufacturer()
+    {
+        if (manufacturer is null || hasParts) return;
+
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            var manufacturerToDelete = await context.Manufacturers.FindAsync(manufacturer.ManufacturerId);
+            
+            if (manufacturerToDelete != null)
+            {
+                context.Manufacturers.Remove(manufacturerToDelete);
+                await context.SaveChangesAsync();
+                NavigationManager.NavigateTo("/manufacturers");
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при удалении: {ex.Message}";
+        }
+    }
+}

@@ -1,0 +1,131 @@
+﻿@page "/manufacturers/details"
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Administrator,Manager")]
+
+<PageTitle>Детали производителя</PageTitle>
+
+<div class="container mt-4">
+    <h2>Детали производителя</h2>
+    
+    @if (errorMessage != null)
+    {
+        <div class="alert alert-danger mt-3">
+            <strong>Ошибка:</strong> @errorMessage
+            <div class="mt-2">
+                <a href="/manufacturers" class="btn btn-sm btn-outline-primary">Назад к списку</a>
+            </div>
+        </div>
+    }
+    else if (manufacturer is null)
+    {
+        <div class="text-center mt-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-2">Загрузка...</p>
+        </div>
+    }
+    else
+    {
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">Информация о производителе</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <p><strong>Название:</strong> @manufacturer.Name</p>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <p><strong>Страна:</strong> 
+                                @if (!string.IsNullOrEmpty(manufacturer.Country))
+                                {
+                                    @manufacturer.Country
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Не указана</span>
+                                }
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <p><strong>Описание:</strong> 
+                                @if (!string.IsNullOrEmpty(manufacturer.Description))
+                                {
+                                    @manufacturer.Description
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Не указано</span>
+                                }
+                            </p>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <p><strong>Статус:</strong> 
+                                @if (manufacturer.IsActive)
+                                {
+                                    <span class="badge bg-success">Активен</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-danger">Неактивен</span>
+                                }
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-4">
+                    <a href="@($"/manufacturers/edit?manufacturerid={manufacturer.ManufacturerId}")" class="btn btn-primary">Редактировать</a>
+                    <a href="/manufacturers" class="btn btn-outline-secondary">Назад к списку</a>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Manufacturer? manufacturer;
+    private string? errorMessage;
+
+    [SupplyParameterFromQuery]
+    private int ManufacturerId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (ManufacturerId <= 0)
+        {
+            errorMessage = "Не указан ID производителя";
+            return;
+        }
+
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            manufacturer = await context.Manufacturers
+                .FirstOrDefaultAsync(m => m.ManufacturerId == ManufacturerId);
+
+            if (manufacturer is null)
+            {
+                errorMessage = "Производитель не найден";
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при загрузке данных: {ex.Message}";
+        }
+    }
+}

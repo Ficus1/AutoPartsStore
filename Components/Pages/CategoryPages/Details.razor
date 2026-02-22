@@ -1,0 +1,98 @@
+﻿@page "/categories/details"
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Administrator,Manager")]
+
+<PageTitle>Детали категории</PageTitle>
+
+<div class="container mt-4">
+    <h2>Детали категории</h2>
+    
+    @if (errorMessage != null)
+    {
+        <div class="alert alert-danger mt-3">
+            <strong>Ошибка:</strong> @errorMessage
+            <div class="mt-2">
+                <a href="/categories" class="btn btn-sm btn-outline-primary">Назад к списку</a>
+            </div>
+        </div>
+    }
+    else if (category is null)
+    {
+        <div class="text-center mt-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-2">Загрузка...</p>
+        </div>
+    }
+    else
+    {
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">Информация о категории</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Название:</strong> @category.Name</p>
+                    </div>
+                    <div class="col-md-6">
+                        @if (!string.IsNullOrEmpty(category.Description))
+                        {
+                            <p><strong>Описание:</strong> @category.Description</p>
+                        }
+                        else
+                        {
+                            <p><strong>Описание:</strong> <span class="text-muted">Не указано</span></p>
+                        }
+                    </div>
+                </div>
+                
+                <div class="mt-4">
+                    <a href="@($"/categories/edit?categoryid={category.CategoryId}")" class="btn btn-primary">Редактировать</a>
+                    <a href="/categories" class="btn btn-outline-secondary">Назад к списку</a>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Category? category;
+    private string? errorMessage;
+
+    [SupplyParameterFromQuery]
+    private int CategoryId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (CategoryId <= 0)
+        {
+            errorMessage = "Не указан ID категории";
+            return;
+        }
+
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            category = await context.Categories
+                .FirstOrDefaultAsync(m => m.CategoryId == CategoryId);
+
+            if (category is null)
+            {
+                errorMessage = "Категория не найдена";
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при загрузке данных: {ex.Message}";
+        }
+    }
+}

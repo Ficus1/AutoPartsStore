@@ -1,0 +1,431 @@
+﻿@page "/orders/edit"
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@using Microsoft.AspNetCore.Authorization
+@using System.Security.Claims
+@attribute [Authorize(Roles = "Administrator,Manager")]
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@rendermode InteractiveServer
+
+<PageTitle>Редактирование заказа #@OrderId</PageTitle>
+
+<div class="container-fluid">
+    <!-- Заголовок -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Редактирование заказа #@OrderId</h1>
+        <div>
+            <a href="/orders" class="btn btn-secondary">
+                Назад к списку
+            </a>
+        </div>
+    </div>
+    @if (Order is null)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-2">Загрузка данных заказа...</p>
+        </div>
+    }
+    else
+    {
+        <div class="row">
+            <div class="col-md-8">
+                <!-- Форма редактирования -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Изменение данных заказа</h5>
+                    </div>
+                    <div class="card-body">
+                        <EditForm method="post" Model="Order" OnValidSubmit="UpdateOrder">
+                            <DataAnnotationsValidator />
+                            <ValidationSummary role="alert" />
+                            
+                            <!-- Скрытые поля -->
+                            <input type="hidden" name="Order.OrderId" value="@Order.OrderId" />
+                            <input type="hidden" name="Order.UserId" value="@Order.UserId" />
+                            <input type="hidden" name="Order.OrderDate" value="@Order.OrderDate" />
+                            <input type="hidden" name="Order.TotalAmount" value="@Order.TotalAmount" />
+                            
+                            <!-- Информация только для чтения -->
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Клиент:</label>
+                                <div class="form-control-plaintext">
+                                    @if (Order.User != null)
+                                    {
+                                        @Order.User.LastName @Order.User.FirstName @Order.User.MiddleName
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">Неизвестный пользователь</span>
+                                    }
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Дата заказа:</label>
+                                <div class="form-control-plaintext">
+                                    @Order.OrderDate.ToString("dd.MM.yyyy HH:mm")
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Общая сумма:</label>
+                                <div class="form-control-plaintext h5 text-success">
+                                    @Order.TotalAmount.ToString("C2")
+                                </div>
+                            </div>
+                            
+                            <!-- Статус заказа -->
+                            <div class="mb-3">
+                                <label for="status" class="form-label fw-bold">Статус заказа <span class="text-danger">*</span>:</label>
+                                <select id="status" class="form-select" @bind="Order.Status">
+                                    <option value="">-- Выберите статус --</option>
+                                    <option value="В обработке">В обработке</option>
+                                    <option value="Оплачен">Оплачен</option>
+                                    <option value="Доставлен">Доставлен</option>
+                                    <option value="Отменен">Отменен</option>
+                                </select>
+                                <ValidationMessage For="() => Order.Status" class="text-danger" />
+                                <div class="form-text">
+                                    Текущий статус: 
+                                    <span class="badge @GetStatusBadgeClass(Order.Status)">
+                                        @Order.Status
+                                    </span>
+                                </div>
+                                <div class="mt-1 alert alert-warning">
+                                <small>
+                                    <i class="bi bi-exclamation-triangle"></i> 
+                                    <strong>Важно:</strong> При изменении статуса на "Отменен" товары автоматически вернутся на склад.
+                                    При изменении статуса с "Отменен" на другой статус система проверит наличие товаров на складе.
+                                </small>
+                            </div>
+                            </div>
+                            
+                            <!-- Адрес доставки -->
+                            <div class="mb-3">
+                                <label for="shippingaddress" class="form-label fw-bold">Адрес доставки:</label>
+                                <InputText id="shippingaddress" @bind-Value="Order.ShippingAddress" class="form-control" />
+                                <ValidationMessage For="() => Order.ShippingAddress" class="text-danger" />
+                            </div>
+                            
+                            <!-- Номер телефона -->
+                            <div class="mb-3">
+                                <label for="phonenumber" class="form-label fw-bold">Номер телефона:</label>
+                                <InputText id="phonenumber" @bind-Value="Order.PhoneNumber" class="form-control" />
+                                <ValidationMessage For="() => Order.PhoneNumber" class="text-danger" />
+                            </div>
+                            
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">
+                                    Сохранить изменения
+                                </button>
+                                <a href="@($"/orders/details?orderid={OrderId}")" class="btn btn-outline-secondary">
+                                    Отмена
+                                </a>
+                            </div>
+                        </EditForm>
+                    </div>
+                </div>
+                
+                <!-- Товары в заказе -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Товары в заказе</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (Order.OrderItems?.Any() == true)
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Товар</th>
+                                            <th>Артикул</th>
+                                            <th>Производитель</th>
+                                            <th class="text-end">Цена за шт.</th>
+                                            <th class="text-end">Количество</th>
+                                            <th class="text-end">Сумма</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var item in Order.OrderItems.OrderBy(i => i.Part?.Name))
+                                        {
+                                            var part = item.Part;
+                                            var itemTotal = item.UnitPrice * item.Quantity;
+                                            
+                                            <tr>
+                                                <td>
+                                                    <div class="d-flex align-items-center">
+                                                        <!-- Изображение товара -->
+                                                        <div class="me-3" style="width: 75px; height: 75px;">
+                                                            @if (!string.IsNullOrEmpty(part?.ImagePath))
+                                                            {
+                                                                <img src="@part.ImagePath" 
+                                                                     class="img-thumbnail" 
+                                                                     style="width: 100%; height: 100%; object-fit: contain;" 
+                                                                     alt="@part.Name"
+                                                                     onerror="this.onerror=null;this.src='/images/no-image.png';" />
+                                                            }
+                                                            else
+                                                            {
+                                                                <div class="text-center text-muted d-flex align-items-center justify-content-center h-100 border rounded">
+                                                                    <i class="bi bi-image"></i>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                        <div>
+                                                            <div class="fw-bold">@(part?.Name ?? "Неизвестный товар")</div>
+                                                            @if (!string.IsNullOrEmpty(part?.Description))
+                                                            {
+                                                                <small class="text-muted">@part.Description</small>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <code>@(part?.Article ?? "-")</code>
+                                                </td>
+                                                <td>@(part?.Manufacturer?.Name ?? "Не указан")</td>
+                                                <td class="text-end">@item.UnitPrice.ToString("C2")</td>
+                                                <td class="text-end">@item.Quantity шт.</td>
+                                                <td class="text-end fw-bold">@itemTotal.ToString("C2")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                    <tfoot>
+                                        <tr class="table-light">
+                                            <th colspan="5" class="text-end">Итого по заказу:</th>
+                                            <th class="text-end h5 text-success">@Order.TotalAmount.ToString("C2")</th>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                В этом заказе нет товаров.
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Информация о заказе -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Информация о заказе</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">ID заказа:</label>
+                            <div class="fw-bold">@Order.OrderId</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Товаров в заказе:</label>
+                            <div class="fw-bold">@Order.OrderItems?.Count</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Пользователь:</label>
+                            <div>
+                                @if (Order.User != null)
+                                {
+                                    <div>@Order.User.LastName @Order.User.FirstName</div>
+                                    <div class="text-muted small">@Order.User.Email</div>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Неизвестно</span>
+                                }
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Телефон:</label>
+                            <div>@Order.PhoneNumber</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Адрес доставки:</label>
+                            <div>@Order.ShippingAddress</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Дата создания:</label>
+                            <div>@Order.OrderDate.ToString("dd.MM.yyyy HH:mm")</div>
+                        </div>
+                        
+                        <hr />
+                        
+                        <div class="d-grid gap-2">
+                            <a href="@($"/orders/details?orderid={OrderId}")" class="btn btn-outline-primary">
+                                <i class="bi bi-eye"></i> Просмотр деталей
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    private int OrderId { get; set; }
+
+    [SupplyParameterFromForm]
+    private Order? Order { get; set; }
+    
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            
+            // Загружаем данные заказа
+            using var context = DbFactory.CreateDbContext();
+            Order = await context.Orders
+                .Include(o => o.User)
+                .Include(o => o.OrderItems)
+                    .ThenInclude(oi => oi.Part)
+                        .ThenInclude(p => p!.Manufacturer)
+                .FirstOrDefaultAsync(m => m.OrderId == OrderId);
+
+            if (Order is null)
+            {
+                NavigationManager.NavigateTo("/orders");
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при загрузке данных: {ex.Message}";
+        }
+    }
+
+    private async Task UpdateOrder()
+    {
+        try
+        {
+            
+            using var context = DbFactory.CreateDbContext();
+            
+            // Получаем текущий заказ из базы
+            var existingOrder = await context.Orders
+                .Include(o => o.OrderItems)
+                .FirstOrDefaultAsync(o => o.OrderId == OrderId);
+
+            if (existingOrder == null)
+            {
+                errorMessage = "Заказ не найден";
+                return;
+            }
+            
+            // Сохраняем старый статус для проверки
+            var oldStatus = existingOrder.Status;
+            var newStatus = Order?.Status;
+            
+            // Обновляем только разрешенные поля
+            existingOrder.Status = Order?.Status ?? existingOrder.Status;
+            existingOrder.ShippingAddress = Order?.ShippingAddress ?? existingOrder.ShippingAddress;
+            existingOrder.PhoneNumber = Order?.PhoneNumber ?? existingOrder.PhoneNumber;
+            
+            // Если статус изменен на "Отменен", возвращаем товары на склад
+            if (oldStatus != "Отменен" && newStatus == "Отменен")
+            {
+                await ReturnItemsToStock(context, existingOrder);
+            }
+            
+            // Если статус изменен с "Отменен" на другой, проверяем наличие товаров
+            if (oldStatus == "Отменен" && newStatus != "Отменен")
+            {
+                var hasEnoughStock = await CheckStockAvailability(context, existingOrder);
+                if (!hasEnoughStock)
+                {
+                    errorMessage = "Недостаточно товаров на складе для восстановления заказа";
+                    return;
+                }
+                
+                // Возвращаем товары обратно в заказ
+                await RemoveItemsFromStock(context, existingOrder);
+            }
+            
+            // Сохраняем изменения
+            await context.SaveChangesAsync();
+            
+            // Перенаправляем на страницу деталей заказа
+            NavigationManager.NavigateTo($"/orders/details?orderid={OrderId}");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при сохранении изменений: {ex.Message}";
+        }
+    }
+
+    private async Task ReturnItemsToStock(AutoPartsContext context, Order order)
+    {
+        if (order.OrderItems == null || !order.OrderItems.Any())
+            return;
+
+        foreach (var item in order.OrderItems)
+        {
+            var part = await context.Parts.FindAsync(item.PartId);
+            if (part != null)
+            {
+                part.StockQuantity += item.Quantity;
+            }
+        }
+    }
+
+    private async Task<bool> CheckStockAvailability(AutoPartsContext context, Order order)
+    {
+        if (order.OrderItems == null || !order.OrderItems.Any())
+            return true;
+
+        foreach (var item in order.OrderItems)
+        {
+            var part = await context.Parts.FindAsync(item.PartId);
+            if (part == null || part.StockQuantity < item.Quantity)
+            {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+
+    private async Task RemoveItemsFromStock(AutoPartsContext context, Order order)
+    {
+        if (order.OrderItems == null || !order.OrderItems.Any())
+            return;
+
+        foreach (var item in order.OrderItems)
+        {
+            var part = await context.Parts.FindAsync(item.PartId);
+            if (part != null)
+            {
+                part.StockQuantity -= item.Quantity;
+            }
+        }
+    }
+
+    private string GetStatusBadgeClass(string? status)
+    {
+        return status switch
+        {
+            "В обработке" => "bg-warning",
+            "Оплачен" => "bg-primary",
+            "Доставлен" => "bg-success",
+            "Отменен" => "bg-danger",
+            _ => "bg-info"
+        };
+    }
+}

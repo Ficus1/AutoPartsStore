@@ -1,0 +1,73 @@
+﻿@page "/categories/create"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Administrator,Manager")]
+
+<PageTitle>Создание категории</PageTitle>
+
+<div class="container mt-4">
+    <h2>Создание категории</h2>
+    
+    <div class="card mt-3">
+        <div class="card-header">
+            <h5 class="mb-0">Заполните информацию о категории</h5>
+        </div>
+        <div class="card-body">
+            <EditForm method="post" Model="Category" OnValidSubmit="AddCategory" FormName="create" Enhance>
+                <DataAnnotationsValidator />
+                <ValidationSummary class="text-danger" role="alert" />
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <span class="text-danger">*</span>
+                            <label for="name" class="form-label">Название категории:</label>
+                            <InputText id="name" @bind-Value="Category.Name" class="form-control" aria-required="true" />
+                            <ValidationMessage For="() => Category.Name" class="text-danger" />
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="description" class="form-label">Описание:</label>
+                            <InputTextArea id="description" @bind-Value="Category.Description" class="form-control" rows="4" />
+                            <ValidationMessage For="() => Category.Description" class="text-danger" />
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">Создать категорию</button>
+                    <a href="/categories" class="btn btn-outline-secondary">Отмена</a>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    private Category Category { get; set; } = default!;
+
+    protected override void OnInitialized() => Category ??= new();
+
+    private async Task AddCategory()
+    {
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            context.Categories.Add(Category);
+            await context.SaveChangesAsync();
+            NavigationManager.NavigateTo("/categories");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при создании категории: {ex.Message}");
+        }
+    }
+}

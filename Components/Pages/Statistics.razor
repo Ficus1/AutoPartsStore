@@ -1,0 +1,444 @@
+@page "/statistics"
+@rendermode InteractiveServer
+@using AutoPartsStore.Data
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Plotly.Blazor
+@using Plotly.Blazor.Traces
+@using Plotly.Blazor.Traces.ScatterLib
+@using Plotly.Blazor.LayoutLib
+@using Plotly.Blazor.Traces.PieLib
+@using Plotly.Blazor.Traces.BarLib
+@using System.Globalization
+@using Microsoft.AspNetCore.Identity
+@inject IJSRuntime JSRuntime
+@inject AutoPartsContext Context
+@inject UserManager<ApplicationUser> UserManager
+@attribute [Authorize(Roles = "Administrator,Manager")]
+
+<PageTitle>Статистика магазина</PageTitle>
+
+<div class="container mt-4">
+    <h1 class="mb-4">Статистика магазина автозапчастей</h1>
+
+    <div class="row">
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm p-4">
+                <h4 class="mb-3">Статистика продаж за последние 6 месяцев</h4>
+                <PlotlyChart style="height: 300px; min-height: 350px" @bind-Config="salesConfig" @bind-Layout="salesLayout" @bind-Data="salesData" />
+            </div>
+        </div>
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm p-4">
+                <h4 class="mb-3">Распределение товаров по категориям</h4>
+                <PlotlyChart style="height: 300px; min-height: 350px" @bind-Config="categoriesConfig" @bind-Layout="categoriesLayout" @bind-Data="categoriesData" />
+            </div>
+        </div>
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm p-4">
+                <h4 class="mb-3">Топ продаваемых товаров</h4>
+                <PlotlyChart style="height: 300px; min-height: 350px" @bind-Config="topProductsConfig" @bind-Layout="topProductsLayout" @bind-Data="topProductsData" />
+            </div>
+        </div>
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm p-4">
+                <h4 class="mb-3">Статусы заказов</h4>
+                <PlotlyChart style="height: 300px; min-height: 350px" @bind-Config="ordersConfig" @bind-Layout="ordersLayout" @bind-Data="ordersData" />
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12 mb-4">
+            <div class="card shadow-sm p-4">
+                <h4 class="mb-3">Ключевые показатели</h4>
+                <div class="row">
+                    <div class="col-12 col-sm-6 col-md-3 mb-3">
+                        <div class="card shadow-sm p-3 text-center border-primary">
+                            <i class="bi bi-box-seam-fill fs-1 text-primary mb-3"></i>
+                            <h5 class="mt-2 text-dark">@totalSoldItems</h5>
+                            <p class="text-muted mb-0">Товаров в заказах</p>
+                        </div>
+                    </div>
+                    <div class="col-12 col-sm-6 col-md-3 mb-3">
+                        <div class="card shadow-sm p-3 text-center border-info">
+                            <i class="bi bi-cart-check-fill fs-1 text-info mb-3"></i>
+                            <h5 class="mt-2 text-dark">@totalOrders</h5>
+                            <p class="text-muted mb-0">Всего заказов</p>
+                        </div>
+                    </div>
+                    <div class="col-12 col-sm-6 col-md-3 mb-3">
+                        <div class="card shadow-sm p-3 text-center border-success">
+                            <i class="bi bi-people-fill fs-1 text-success mb-3"></i>
+                            <h5 class="mt-2 text-dark">@totalCustomers</h5>
+                            <p class="text-muted mb-0">Всего клиентов</p>
+                        </div>
+                    </div>
+                    <div class="col-12 col-sm-6 col-md-3 mb-3">
+                        <div class="card shadow-sm p-3 text-center border-warning">
+                            <i class="bi bi-cash fs-1 text-warning mb-3"></i>
+                            <h5 class="mt-2 text-dark">@totalRevenue.ToString("N0", new CultureInfo("ru-RU")) ₽</h5>
+                            <p class="text-muted mb-0">Общая выручка</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    // Конфигурация для графиков продаж
+    private Config salesConfig;
+    private Layout salesLayout;
+    private IList<ITrace> salesData;
+
+    // Конфигурация для категорий
+    private Config categoriesConfig;
+    private Layout categoriesLayout;
+    private IList<ITrace> categoriesData;
+
+    // Конфигурация для топ товаров
+    private Config topProductsConfig;
+    private Layout topProductsLayout;
+    private IList<ITrace> topProductsData;
+
+    // Конфигурация для статусов заказов
+    private Config ordersConfig;
+    private Layout ordersLayout;
+    private IList<ITrace> ordersData;
+
+    // Ключевые показатели
+    private int totalSoldItems = 0;
+    private int totalOrders = 0;
+    private int totalCustomers = 0; // Клиенты с заказами "Оплачен" или "Доставлен"
+    private decimal totalRevenue = 0;
+
+    // Модели данных для графиков
+    private List<SalesData> monthlySales = new();
+    private List<CategoryDistribution> categoryDistribution = new();
+    private List<TopProduct> topProductsList = new();
+    private List<OrderStatusCount> orderStatuses = new();
+
+    // Список статусов, которые исключаются из статистики продаж
+    private readonly List<string> excludedOrderStatuses = new()
+    {
+        "Отменен",
+        "В обработке"
+    };
+
+    // Статусы, которые считаются для подсчета клиентов
+    private readonly List<string> validCustomerOrderStatuses = new()
+    {
+        "Оплачен",
+        "Доставлен"
+    };
+
+    // Словарь для привязки цветов к статусам заказов
+    private readonly Dictionary<string, string> statusColors = new Dictionary<string, string>
+    {
+        { "В обработке", "#FFA726" },
+        { "Оплачен", "#42A5F5" },
+        { "Доставлен", "#66BB6A" },
+        { "Отменен", "#EF5350" },
+        { "Неизвестно", "#BDBDBD" }
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStatisticsData();
+        await LoadChartData();
+        InitializeCharts();
+    }
+
+    private async Task LoadStatisticsData()
+    {
+        // 1. Общее количество товаров в заказах, исключая "Отменен" и "В обработке"
+        totalSoldItems = await Context.OrderItems
+            .Include(oi => oi.Order)
+            .Where(oi => oi.Order != null && !excludedOrderStatuses.Contains(oi.Order.Status))
+            .SumAsync(oi => oi.Quantity);
+
+        // 2. Всего заказов (включая все статусы)
+        totalOrders = await Context.Orders.CountAsync();
+
+        // 3. Количество клиентов, у которых есть заказ со статусом "Оплачен" или "Доставлен"
+        totalCustomers = await CountCustomersWithValidOrdersAsync();
+
+        // 4. Общая выручка, исключая "Отменен" и "В обработке"
+        totalRevenue = await Context.Orders
+            .Where(o => !excludedOrderStatuses.Contains(o.Status))
+            .SumAsync(o => o.TotalAmount);
+    }
+
+    // Метод для подсчета клиентов с заказами со статусом "Оплачен" или "Доставлен"
+    private async Task<int> CountCustomersWithValidOrdersAsync()
+    {
+        try
+        {
+            // Находим уникальных пользователей, у которых есть хотя бы один заказ с нужным статусом
+            var customerIds = await Context.Orders
+                .Where(o => validCustomerOrderStatuses.Contains(o.Status))
+                .Select(o => o.UserId)
+                .Distinct()
+                .ToListAsync();
+
+            return customerIds.Count;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при подсчете клиентов с оплаченными/доставленными заказами: {ex.Message}");
+            return 0;
+        }
+    }
+
+    private async Task LoadChartData()
+    {
+        // 1. Загружаем продажи по месяцам за последние 6 месяцев, исключая "Отменен" и "В обработке"
+        var sixMonthsAgo = DateTime.Now.AddMonths(-6);
+        monthlySales = await Context.Orders
+            .Where(o => o.OrderDate >= sixMonthsAgo && !excludedOrderStatuses.Contains(o.Status))
+            .GroupBy(o => new { o.OrderDate.Year, o.OrderDate.Month })
+            .Select(g => new SalesData
+            {
+                Year = g.Key.Year,
+                Month = g.Key.Month,
+                MonthName = new DateTime(g.Key.Year, g.Key.Month, 1).ToString("MMM", new CultureInfo("ru-RU")),
+                TotalAmount = g.Sum(o => o.TotalAmount)
+            })
+            .OrderBy(s => s.Year)
+            .ThenBy(s => s.Month)
+            .ToListAsync();
+
+        // 2. Загружаем распределение товаров по категориям
+        categoryDistribution = await Context.Parts
+            .Include(p => p.Category)
+            .GroupBy(p => p.CategoryId)
+            .Select(g => new CategoryDistribution
+            {
+                CategoryId = g.Key,
+                CategoryName = g.First().Category!.Name ?? "Без категории",
+                ProductCount = g.Count()
+            })
+            .ToListAsync();
+
+        // 3. Загружаем топ продаваемых товаров, исключая "Отменен" и "В обработке"
+        topProductsList = await Context.OrderItems
+            .Include(oi => oi.Part)
+            .Include(oi => oi.Order)
+            .Where(oi => oi.Order != null && !excludedOrderStatuses.Contains(oi.Order.Status))
+            .GroupBy(oi => oi.PartId)
+            .Select(g => new TopProduct
+            {
+                PartId = g.Key,
+                ProductName = g.First().Part!.Name ?? "Неизвестный товар",
+                TotalSold = g.Sum(oi => oi.Quantity)
+            })
+            .OrderByDescending(tp => tp.TotalSold)
+            .ToListAsync();
+
+        // 4. Загружаем статусы заказов
+        orderStatuses = await Context.Orders
+            .GroupBy(o => o.Status)
+            .Select(g => new OrderStatusCount
+            {
+                Status = g.Key ?? "Неизвестно",
+                Count = g.Count()
+            })
+            .ToListAsync();
+    }
+
+    private void InitializeCharts()
+    {
+        // Задаем цвета для светлой темы
+        var surfaceColor = "#ffffff";
+        var textColor = "#212529";
+        var gridColor = "#e9ecef";
+
+        // 1. График продаж по месяцам
+        salesConfig = new Config { Responsive = true };
+        salesLayout = new Layout
+        {
+            Title = new Plotly.Blazor.LayoutLib.Title { Text = "Продажи по месяцам" },
+            PaperBgColor = surfaceColor,
+            PlotBgColor = surfaceColor,
+            Font = new Font { Color = textColor },
+            XAxis = new List<XAxis>
+            {
+                new XAxis 
+                { 
+                    Title = new Plotly.Blazor.LayoutLib.XAxisLib.Title 
+                    { 
+                        Text = "Месяц" 
+                    },
+                    GridColor = gridColor,
+                    LineColor = textColor
+                }
+            },
+            YAxis = new List<YAxis>
+            {
+                new YAxis 
+                { 
+                    Title = new Plotly.Blazor.LayoutLib.YAxisLib.Title 
+                    { 
+                        Text = "Сумма (руб)" 
+                    },
+                    GridColor = gridColor,
+                    LineColor = textColor
+                }
+            }
+        };
+
+        salesData = new List<ITrace>
+        {
+            new Scatter
+            {
+                X = monthlySales.Select(ms => (object)ms.MonthName).ToList(),
+                Y = monthlySales.Select(ms => (object)ms.TotalAmount).ToList(),
+                Mode = ModeFlag.Lines | ModeFlag.Markers,
+                Name = "Продажи",
+                Line = new Line { Width = 3, Color = "#007bff" },
+                Marker = new Plotly.Blazor.Traces.ScatterLib.Marker { Color = "#007bff" }
+            }
+        };
+
+        // 2. Распределение товаров по категориям
+        categoriesConfig = new Config { Responsive = true };
+        categoriesLayout = new Layout
+        {
+            Title = new Plotly.Blazor.LayoutLib.Title { Text = "Товары по категориям" },
+            PaperBgColor = surfaceColor,
+            PlotBgColor = surfaceColor,
+            Font = new Font { Color = textColor }
+        };
+
+        var pieTrace = new Pie
+        {
+            Values = categoryDistribution.Select(cd => (object)cd.ProductCount).ToList(),
+            Labels = categoryDistribution.Select(cd => (object)cd.CategoryName).ToList(),
+            Name = "Категории"
+        };
+
+        pieTrace.Hole = 0.4m;
+        pieTrace.TextInfo = TextInfoFlag.Label | TextInfoFlag.Percent;
+
+        categoriesData = new List<ITrace> { pieTrace };
+
+        // 3. Топ продаваемых товаров
+        topProductsConfig = new Config { Responsive = true };
+        topProductsLayout = new Layout
+        {
+            Title = new Plotly.Blazor.LayoutLib.Title { Text = "Топ продаваемых товаров" },
+            PaperBgColor = surfaceColor,
+            PlotBgColor = surfaceColor,
+            Font = new Font { Color = textColor },
+        };
+
+        var sortedTopProducts = topProductsList.OrderByDescending(tp => tp.TotalSold).ToList();
+
+        topProductsData = new List<ITrace>
+        {
+            new Bar
+            {
+                X = sortedTopProducts.Select(tp => (object)tp.ProductName).ToList(),
+                Y = sortedTopProducts.Select(tp => (object)tp.TotalSold).ToList(),
+                Name = "Продажи",
+                Marker = new Plotly.Blazor.Traces.BarLib.Marker { Color = "#28a745" }
+            }
+        };
+
+        topProductsLayout.XAxis = new List<XAxis>
+        {
+            new XAxis 
+            { 
+                Title = new Plotly.Blazor.LayoutLib.XAxisLib.Title 
+                { 
+                    Text = "Количество проданных единиц" 
+                },
+                GridColor = gridColor,
+                LineColor = textColor
+            }
+        };
+        
+        topProductsLayout.YAxis = new List<YAxis>
+        {
+            new YAxis 
+            { 
+                Title = new Plotly.Blazor.LayoutLib.YAxisLib.Title 
+                { 
+                    Text = "Товар" 
+                },
+                GridColor = gridColor,
+                LineColor = textColor
+            }
+        };
+
+        // 4. Статусы заказов
+        ordersConfig = new Config { Responsive = true };
+        ordersLayout = new Layout
+        {
+            Title = new Plotly.Blazor.LayoutLib.Title { Text = "Статусы заказов" },
+            PaperBgColor = surfaceColor,
+            PlotBgColor = surfaceColor,
+            Font = new Font { Color = textColor }
+        };
+
+        var ordersPieTrace = new Pie
+        {
+            Values = orderStatuses.Select(os => (object)os.Count).ToList(),
+            Labels = orderStatuses.Select(os => (object)os.Status).ToList(),
+            Name = "Статусы"
+        };
+
+        ordersPieTrace.TextInfo = TextInfoFlag.Label | TextInfoFlag.Percent;
+        
+        var colorsList = new List<object>();
+        foreach (var status in orderStatuses)
+        {
+            if (statusColors.TryGetValue(status.Status, out var color))
+            {
+                colorsList.Add(color);
+            }
+            else
+            {
+                colorsList.Add("#BDBDBD");
+            }
+        }
+
+        ordersPieTrace.Marker = new Plotly.Blazor.Traces.PieLib.Marker
+        {
+            Colors = colorsList
+        };
+
+        ordersData = new List<ITrace> { ordersPieTrace };
+    }
+
+    // Модели данных для графиков
+    private class SalesData
+    {
+        public int Year { get; set; }
+        public int Month { get; set; }
+        public string MonthName { get; set; } = string.Empty;
+        public decimal TotalAmount { get; set; }
+    }
+
+    private class CategoryDistribution
+    {
+        public int CategoryId { get; set; }
+        public string CategoryName { get; set; } = string.Empty;
+        public int ProductCount { get; set; }
+    }
+
+    private class TopProduct
+    {
+        public int PartId { get; set; }
+        public string ProductName { get; set; } = string.Empty;
+        public int TotalSold { get; set; }
+    }
+
+    private class OrderStatusCount
+    {
+        public string Status { get; set; } = string.Empty;
+        public int Count { get; set; }
+    }
+}

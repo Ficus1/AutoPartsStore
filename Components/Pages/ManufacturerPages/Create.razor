@@ -1,0 +1,88 @@
+﻿@page "/manufacturers/create"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Administrator,Manager")]
+
+<PageTitle>Создание производителя</PageTitle>
+
+<div class="container mt-4">
+    <h2>Создание производителя</h2>
+    
+    <div class="card mt-3">
+        <div class="card-header">
+            <h5 class="mb-0">Заполните информацию о производителе</h5>
+        </div>
+        <div class="card-body">
+            <EditForm method="post" Model="Manufacturer" OnValidSubmit="AddManufacturer" FormName="create" Enhance>
+                <DataAnnotationsValidator />
+                <ValidationSummary class="text-danger" role="alert" />
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <span class="text-danger">*</span>
+                            <label for="name" class="form-label">Название производителя:</label>
+                            <InputText id="name" @bind-Value="Manufacturer.Name" class="form-control" aria-required="true" />
+                            <ValidationMessage For="() => Manufacturer.Name" class="text-danger" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="country" class="form-label">Страна:</label>
+                            <InputText id="country" @bind-Value="Manufacturer.Country" class="form-control" />
+                            <ValidationMessage For="() => Manufacturer.Country" class="text-danger" />
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="description" class="form-label">Описание:</label>
+                            <InputTextArea id="description" @bind-Value="Manufacturer.Description" class="form-control" rows="4" />
+                            <ValidationMessage For="() => Manufacturer.Description" class="text-danger" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <InputCheckbox id="isactive" @bind-Value="Manufacturer.IsActive" class="form-check-input" />
+                                <label for="isactive" class="form-check-label">Активен</label>
+                                <ValidationMessage For="() => Manufacturer.IsActive" class="text-danger" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">Создать производителя</button>
+                    <a href="/manufacturers" class="btn btn-outline-secondary">Отмена</a>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    private Manufacturer Manufacturer { get; set; } = default!;
+
+    protected override void OnInitialized() => Manufacturer ??= new();
+
+    // To protect from overposting attacks, see https://learn.microsoft.com/aspnet/core/blazor/forms/#mitigate-overposting-attacks.
+    private async Task AddManufacturer()
+    {
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            context.Manufacturers.Add(Manufacturer);
+            await context.SaveChangesAsync();
+            NavigationManager.NavigateTo("/manufacturers");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при создании производителя: {ex.Message}");
+        }
+    }
+}

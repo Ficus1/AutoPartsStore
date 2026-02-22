@@ -1,0 +1,892 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using AutoPartsStore.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@inject IDbContextFactory<AutoPartsContext> ContextFactory
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Каталог автозапчастей</PageTitle>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="display-4">Каталог автозапчастей</h1>
+            <p class="lead">Широкий выбор качественных запчастей для вашего автомобиля</p>
+        </div>
+    </div>
+
+    <!-- Фильтры и поиск -->
+    <div class="row mb-4">
+        <div class="col-md-4 mb-3">
+            <div class="input-group">
+                <input type="text" class="form-control" placeholder="Поиск по названию..." 
+                       value="@_searchTerm" 
+                       @oninput="@(async (e) => {
+                           _searchTerm = e.Value?.ToString() ?? string.Empty;
+                           await OnSearchTermChanged();
+                       })" />
+                <button class="btn btn-outline-secondary" type="button" @onclick="ClearSearchAsync">
+                    <i class="bi bi-x"></i>
+                </button>
+            </div>
+        </div>
+        
+        <div class="col-md-3 mb-3">
+            <select class="form-select" 
+                    @onchange="@(async (e) => {
+                        if (int.TryParse(e.Value?.ToString(), out var categoryId))
+                        {
+                            _selectedCategoryId = categoryId;
+                            await OnFilterChanged();
+                        }
+                    })">
+                <option value="0" selected="@(_selectedCategoryId == 0)">Все категории</option>
+                @foreach (var category in categories)
+                {
+                    <option value="@category.CategoryId" selected="@(_selectedCategoryId == category.CategoryId)">@category.Name</option>
+                }
+            </select>
+        </div>
+        
+        <div class="col-md-3 mb-3">
+            <select class="form-select"
+                    @onchange="@(async (e) => {
+                        if (int.TryParse(e.Value?.ToString(), out var manufacturerId))
+                        {
+                            _selectedManufacturerId = manufacturerId;
+                            await OnFilterChanged();
+                        }
+                    })">
+                <option value="0" selected="@(_selectedManufacturerId == 0)">Все производители</option>
+                @foreach (var manufacturer in manufacturers)
+                {
+                    <option value="@manufacturer.ManufacturerId" selected="@(_selectedManufacturerId == manufacturer.ManufacturerId)">@manufacturer.Name</option>
+                }
+            </select>
+        </div>
+        
+        <div class="col-md-2 mb-3">
+            <select class="form-select"
+                    @onchange="@(async (e) => {
+                        _sortOrder = e.Value?.ToString() ?? "name";
+                        await OnFilterChanged();
+                    })">
+                <option value="name" selected="@(_sortOrder == "name")">По названию</option>
+                <option value="price_asc" selected="@(_sortOrder == "price_asc")">Цена: по возрастанию</option>
+                <option value="price_desc" selected="@(_sortOrder == "price_desc")">Цена: по убыванию</option>
+                <option value="stock" selected="@(_sortOrder == "stock")">По наличию</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Статистика и кнопка сброса -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="alert alert-info py-2 d-flex justify-content-between align-items-center">
+                <div>
+                    <small>
+                        Найдено товаров: <strong>@filteredParts.Count</strong> | 
+                        Показано: <strong>@Math.Min(pageSize, Math.Max(0, filteredParts.Count - (currentPage - 1) * pageSize))</strong>
+                        @if (!string.IsNullOrEmpty(_searchTerm) || _selectedCategoryId > 0 || _selectedManufacturerId > 0 || _sortOrder != "name")
+                        {
+                            <span class="ms-3">
+                                <i class="bi bi-funnel"></i> Фильтры активны
+                            </span>
+                        }
+                    </small>
+                </div>
+                <div>
+                    @if (isAuthenticated)
+                    {
+                        <a href="/cart" class="btn btn-sm btn-success" title="Перейти в корзину">
+                            <i class="bi bi-cart3 me-1"></i> Корзина (@cartItemsCount)
+                        </a>
+                    }
+                    <button class="btn btn-sm btn-outline-danger ms-2" @onclick="ClearAllFiltersAsync" title="Сбросить все фильтры">
+                        <i class="bi bi-x-circle me-1"></i> Сбросить всё
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Индикатор загрузки -->
+    @if (isLoading)
+    {
+        <div class="text-center my-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-2">Загрузка товаров...</p>
+        </div>
+    }
+
+    <!-- Сетка товаров -->
+    @if (!isLoading && filteredParts.Any())
+    {
+        <div class="row">
+            @foreach (var part in currentPageParts)
+            {
+                var partNotification = partNotifications.ContainsKey(part.PartId) ? partNotifications[part.PartId] : null;
+                
+                <div class="col-lg-3 col-md-4 col-sm-6 mb-4">
+                    <div class="card h-100 shadow-sm">
+                        <div class="card-img-top-container" style="height: 200px; overflow: hidden; background-color: #f8f9fa;">
+                            @if (!string.IsNullOrEmpty(part.ImagePath))
+                            {
+                                <img src="@part.ImagePath" class="card-img-top p-3" 
+                                     alt="@part.Name" style="height: 100%; width: 100%; object-fit: contain;" />
+                            }
+                            else
+                            {
+                                <div class="d-flex align-items-center justify-content-center h-100">
+                                    <i class="bi bi-car-front-fill" style="font-size: 3rem; color: #6c757d;"></i>
+                                </div>
+                            }
+                        </div>
+                        
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title" style="font-size: 1rem; min-height: 3rem;">
+                                @part.Name
+                            </h5>
+                            
+                            <div class="mb-2">
+                                <span class="badge bg-secondary">@part.Article</span>
+                                <span class="badge bg-info">@part.Category?.Name</span>
+                            </div>
+                            
+                            <p class="card-text text-muted small flex-grow-1" style="min-height: 3rem;">
+                                @if (!string.IsNullOrEmpty(part.Description) && part.Description.Length > 100)
+                                {
+                                    @part.Description.Substring(0, 100)@:...
+                                }
+                                else
+                                {
+                                    @part.Description
+                                }
+                            </p>
+                            
+                            <div class="mt-auto">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div>
+                                        <span class="fw-bold text-primary" style="font-size: 1.2rem;">
+                                            @part.Price.ToString("N2") ₽
+                                        </span>
+                                    </div>
+                                    <div>
+                                        @if (part.StockQuantity > 0)
+                                        {
+                                            <span class="badge bg-success">
+                                                <i class="bi bi-check-circle"></i> В наличии: @part.StockQuantity
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-danger">
+                                                <i class="bi bi-x-circle"></i> Нет в наличии
+                                            </span>
+                                        }
+                                    </div>
+                                </div>
+                                
+                                <!-- Уведомление для этой карточки товара -->
+                                @if (partNotification != null)
+                                {
+                                    <div class="notification-card mb-2">
+                                        <div class="alert @(partNotification.IsError ? "alert-danger" : "alert-success") alert-dismissible fade show py-1 mb-0" 
+                                             role="alert" style="font-size: 0.75rem;">
+                                            @partNotification.Message
+                                            <button type="button" class="btn-close btn-close-sm" 
+                                                    @onclick="() => DismissPartNotification(part.PartId)"></button>
+                                        </div>
+                                    </div>
+                                }
+                                
+                                <div class="d-grid gap-2">
+                                    @if (part.StockQuantity > 0)
+                                    {
+                                        @if (isAuthenticated)
+                                        {
+                                            <button class="btn btn-primary" 
+                                                    @onclick="() => AddToCartAsync(part)"
+                                                    disabled="@(addingToCartIds.Contains(part.PartId))">
+                                                @if (addingToCartIds.Contains(part.PartId))
+                                                {
+                                                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                                }
+                                                else
+                                                {
+                                                    <i class="bi bi-cart-plus"></i>
+                                                }
+                                                В корзину
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-primary" @onclick="RedirectToLogin">
+                                                <i class="bi bi-person"></i> Войти для покупки
+                                            </button>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-secondary" disabled>
+                                            <i class="bi bi-cart-x"></i> Нет в наличии
+                                        </button>
+                                    }
+                                    <a href=@($"/parts/details?partid={part.PartId}") class="btn btn-outline-secondary">
+                                        <i class="bi bi-info-circle"></i> Подробнее
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card-footer bg-transparent">
+                            <small class="text-muted">
+                                <i class="bi bi-building"></i> @part.Manufacturer?.Name
+                                @if (!string.IsNullOrEmpty(part.Manufacturer?.Country))
+                                {
+                                    @($"({part.Manufacturer.Country})")
+                                }
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Пагинация -->
+        @if (totalPages > 1)
+        {
+            <nav aria-label="Навигация по страницам">
+                <ul class="pagination justify-content-center">
+                    <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                        <button class="page-link" @onclick="PrevPageAsync">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                    </li>
+                    
+                    @{
+                        var startPage = Math.Max(1, currentPage - 2);
+                        var endPage = Math.Min(totalPages, currentPage + 2);
+                    }
+                    
+                    @for (int i = startPage; i <= endPage; i++)
+                    {
+                        var pageNumber = i;
+                        <li class="page-item @(i == currentPage ? "active" : "")">
+                            <button class="page-link" @onclick="() => GoToPageAsync(pageNumber)">
+                                @i
+                            </button>
+                        </li>
+                    }
+                    
+                    <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                        <button class="page-link" @onclick="NextPageAsync">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </li>
+                </ul>
+            </nav>
+        }
+    }
+    else if (!isLoading)
+    {
+        <div class="text-center py-5">
+            <i class="bi bi-search" style="font-size: 4rem; color: #6c757d;"></i>
+            <h3 class="mt-3">Товары не найдены</h3>
+            <p class="text-muted">Попробуйте изменить параметры поиска или выберите другую категорию</p>
+            <button class="btn btn-primary" @onclick="ClearAllFiltersAsync">
+                <i class="bi bi-filter-circle"></i> Сбросить фильтры
+            </button>
+        </div>
+    }
+
+    <!-- Сводка по категориям -->
+    @if (!isLoading && categories.Any())
+    {
+        <div class="row mt-5">
+            <div class="col-12">
+                <h3>Популярные категории</h3>
+                <div class="row">
+                    @foreach (var category in categories.Take(5))
+                    {
+                        <div class="col-md-2 col-sm-4 mb-3">
+                            <div class="card category-card h-100" @onclick="async () => await SelectCategoryAsync(category.CategoryId)" style="cursor: pointer;">
+                                <div class="card-body text-center">
+                                    <i class="bi bi-gear-fill" style="font-size: 2rem; color: #0d6efd;"></i>
+                                    <h6 class="card-title mt-2">@category.Name</h6>
+                                    <small class="text-muted">
+                                        @(parts.Count(p => p.CategoryId == category.CategoryId)) товаров
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Part> parts = new();
+    private List<Category> categories = new();
+    private List<Manufacturer> manufacturers = new();
+    
+    private string _searchTerm = string.Empty;
+    private int _selectedCategoryId = 0;
+    private int _selectedManufacturerId = 0;
+    private string _sortOrder = "name";
+    
+    private int currentPage = 1;
+    private int pageSize = 8;
+    private int totalPages = 1;
+    
+    private List<Part> filteredParts = new();
+    private List<Part> currentPageParts = new();
+    
+    private bool isLoading = false;
+    private Timer? searchTimer;
+    private readonly int searchDelay = 300;
+    
+    // Аутентификация и корзина
+    private bool isAuthenticated = false;
+    private string? currentUserId;
+    private int cartItemsCount = 0;
+    private HashSet<int> addingToCartIds = new();
+    
+    // Уведомления для каждого товара
+    private Dictionary<int, PartNotification> partNotifications = new();
+    private Timer? cleanupTimer;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckAuthenticationAsync();
+        await LoadDataAsync();
+        await ApplyFiltersAsync();
+        
+        // Запускаем таймер для очистки старых уведомлений
+        cleanupTimer = new Timer(async _ =>
+        {
+            await InvokeAsync(() =>
+            {
+                var now = DateTime.Now;
+                var toRemove = partNotifications
+                    .Where(p => (now - p.Value.CreatedAt).TotalSeconds > 3)
+                    .Select(p => p.Key)
+                    .ToList();
+                
+                foreach (var partId in toRemove)
+                {
+                    partNotifications.Remove(partId);
+                }
+                
+                if (toRemove.Count > 0)
+                {
+                    StateHasChanged();
+                }
+            });
+        }, null, 1000, 1000);
+    }
+    
+    public void Dispose()
+    {
+        cleanupTimer?.Dispose();
+        searchTimer?.Dispose();
+    }
+    
+    private async Task CheckAuthenticationAsync()
+    {
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            isAuthenticated = user.Identity?.IsAuthenticated ?? false;
+            
+            if (isAuthenticated)
+            {
+                currentUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                await LoadCartCountAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка проверки аутентификации: {ex.Message}");
+        }
+    }
+    
+    private async Task LoadCartCountAsync()
+    {
+        if (string.IsNullOrEmpty(currentUserId))
+            return;
+            
+        try
+        {
+            using var context = ContextFactory.CreateDbContext();
+            cartItemsCount = await context.CartItems
+                .Where(ci => ci.UserId == currentUserId)
+                .SumAsync(ci => ci.Quantity);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка загрузки корзины: {ex.Message}");
+        }
+    }
+    
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        try
+        {
+            using var context = ContextFactory.CreateDbContext();
+            
+            parts = await context.Parts
+                .Include(p => p.Category)
+                .Include(p => p.Manufacturer)
+                .ToListAsync();
+                
+            categories = await context.Categories.ToListAsync();
+            manufacturers = await context.Manufacturers.Where(m => m.IsActive).ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка загрузки данных: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+    
+    private async Task ApplyFiltersAsync()
+    {
+        isLoading = true;
+        StateHasChanged();
+        
+        try
+        {
+            await Task.Delay(50);
+            
+            var query = parts.AsQueryable();
+            
+            if (!string.IsNullOrWhiteSpace(_searchTerm))
+            {
+                var term = _searchTerm.ToLower();
+                query = query.Where(p => 
+                    (p.Name != null && p.Name.ToLower().Contains(term)) ||
+                    (p.Article != null && p.Article.ToLower().Contains(term)) ||
+                    (p.Description != null && p.Description.ToLower().Contains(term))
+                );
+            }
+            
+            if (_selectedCategoryId > 0)
+            {
+                query = query.Where(p => p.CategoryId == _selectedCategoryId);
+            }
+            
+            if (_selectedManufacturerId > 0)
+            {
+                query = query.Where(p => p.ManufacturerId == _selectedManufacturerId);
+            }
+            
+            filteredParts = _sortOrder switch
+            {
+                "price_asc" => query.OrderBy(p => p.Price).ToList(),
+                "price_desc" => query.OrderByDescending(p => p.Price).ToList(),
+                "stock" => query.OrderByDescending(p => p.StockQuantity).ToList(),
+                _ => query.OrderBy(p => p.Name).ToList()
+            };
+            
+            totalPages = (int)Math.Ceiling((double)filteredParts.Count / pageSize);
+            currentPage = Math.Max(1, Math.Min(currentPage, totalPages));
+            
+            currentPageParts = filteredParts
+                .Skip((currentPage - 1) * pageSize)
+                .Take(pageSize)
+                .ToList();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+    
+    private async Task AddToCartAsync(Part part)
+    {
+        if (!isAuthenticated)
+        {
+            ShowPartNotification(part.PartId, "Для добавления товаров в корзину необходимо войти в систему", true);
+            Navigation.NavigateTo($"/Account/Login?returnUrl={Uri.EscapeDataString(Navigation.Uri)}");
+            return;
+        }
+        
+        // Блокируем повторные нажатия
+        if (addingToCartIds.Contains(part.PartId))
+            return;
+            
+        addingToCartIds.Add(part.PartId);
+        StateHasChanged();
+        
+        try
+        {
+            using var context = ContextFactory.CreateDbContext();
+            
+            // Загружаем актуальные данные о товаре из базы
+            var dbPart = await context.Parts
+                .FirstOrDefaultAsync(p => p.PartId == part.PartId);
+                
+            if (dbPart == null || dbPart.StockQuantity <= 0)
+            {
+                ShowPartNotification(part.PartId, "Товар временно отсутствует на складе", true);
+                return;
+            }
+            
+            // Проверяем, есть ли уже этот товар в корзине пользователя
+            var existingCartItem = await context.CartItems
+                .FirstOrDefaultAsync(ci => ci.UserId == currentUserId && ci.PartId == part.PartId);
+            
+            // Рассчитываем общее количество в корзине и на складе
+            int totalInCart = existingCartItem?.Quantity ?? 0;
+            int availableOnStock = dbPart.StockQuantity;
+            
+            // Проверяем, чтобы общее количество в корзине не превышало наличие на складе
+            if (totalInCart >= availableOnStock)
+            {
+                ShowPartNotification(part.PartId, $"Достигнуто максимальное количество товара на складе ({availableOnStock} шт.)", true);
+                return;
+            }
+            
+            if (existingCartItem != null)
+            {
+                // Увеличиваем количество существующего товара в корзине
+                existingCartItem.Quantity++;
+                existingCartItem.Price = dbPart.Price;
+                existingCartItem.AddedDate = DateTime.Now;
+            }
+            else
+            {
+                // Создаем новую запись в корзине
+                var cartItem = new CartItem
+                {
+                    UserId = currentUserId!,
+                    PartId = part.PartId,
+                    Quantity = 1,
+                    Price = dbPart.Price,
+                    AddedDate = DateTime.Now
+                };
+                context.CartItems.Add(cartItem);
+            }
+            
+            await context.SaveChangesAsync();
+            
+            // Обновляем счетчик корзины
+            await LoadCartCountAsync();
+            
+            // Обновляем количество на складе в локальном объекте
+            part.StockQuantity = dbPart.StockQuantity;
+            
+            ShowPartNotification(part.PartId, $"Товар \"{part.Name}\" добавлен в корзину");
+        }
+        catch (DbUpdateException dbEx)
+        {
+            ShowPartNotification(part.PartId, "Ошибка при добавлении товара в корзину. Возможно, товара нет в наличии.", true);
+        }
+        catch (Exception ex)
+        {
+            ShowPartNotification(part.PartId, "Ошибка при добавлении товара в корзину", true);
+        }
+        finally
+        {
+            addingToCartIds.Remove(part.PartId);
+            StateHasChanged();
+        }
+    }
+    
+    private void ShowPartNotification(int partId, string message, bool isError = false)
+    {
+        partNotifications[partId] = new PartNotification
+        {
+            Message = message,
+            IsError = isError,
+            CreatedAt = DateTime.Now
+        };
+        
+        StateHasChanged();
+    }
+    
+    private void DismissPartNotification(int partId)
+    {
+        partNotifications.Remove(partId);
+        StateHasChanged();
+    }
+    
+    private void RedirectToLogin()
+    {
+        Navigation.NavigateTo($"/Account/Login?returnUrl={Uri.EscapeDataString(Navigation.Uri)}");
+    }
+    
+    private async Task ScrollToTopAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("window.scrollTo", 0, 0);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при прокрутке: {ex.Message}");
+        }
+    }
+    
+    private async Task GoToPageAsync(int page)
+    {
+        if (page >= 1 && page <= totalPages && page != currentPage)
+        {
+            currentPage = page;
+            await ApplyFiltersAsync();
+            await ScrollToTopAsync();
+        }
+    }
+    
+    private async Task PrevPageAsync()
+    {
+        if (currentPage > 1)
+        {
+            currentPage--;
+            await ApplyFiltersAsync();
+            await ScrollToTopAsync();
+        }
+    }
+    
+    private async Task NextPageAsync()
+    {
+        if (currentPage < totalPages)
+        {
+            currentPage++;
+            await ApplyFiltersAsync();
+            await ScrollToTopAsync();
+        }
+    }
+    
+    private async Task OnSearchTermChanged()
+    {
+        searchTimer?.Dispose();
+        
+        var tcs = new TaskCompletionSource<bool>();
+        
+        searchTimer = new Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                currentPage = 1;
+                await ApplyFiltersAsync();
+                await ScrollToTopAsync();
+            });
+            tcs.TrySetResult(true);
+        }, null, searchDelay, Timeout.Infinite);
+        
+        await tcs.Task;
+    }
+    
+    private async Task OnFilterChanged()
+    {
+        currentPage = 1;
+        await ApplyFiltersAsync();
+        await ScrollToTopAsync();
+    }
+    
+    private async Task ClearSearchAsync()
+    {
+        _searchTerm = string.Empty;
+        currentPage = 1;
+        await ApplyFiltersAsync();
+        await ScrollToTopAsync();
+    }
+    
+    private async Task ClearAllFiltersAsync()
+    {
+        _searchTerm = string.Empty;
+        _selectedCategoryId = 0;
+        _selectedManufacturerId = 0;
+        _sortOrder = "name";
+        currentPage = 1;
+        await ApplyFiltersAsync();
+        await ScrollToTopAsync();
+    }
+    
+    private async Task SelectCategoryAsync(int categoryId)
+    {
+        _selectedCategoryId = categoryId;
+        currentPage = 1;
+        await ApplyFiltersAsync();
+        await ScrollToTopAsync();
+    }
+    
+    // Класс для хранения уведомлений по товарам
+    private class PartNotification
+    {
+        public string Message { get; set; } = string.Empty;
+        public bool IsError { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+}
+
+<style>
+    .card {
+        transition: transform 0.2s, box-shadow 0.2s;
+        border: 1px solid #e0e0e0;
+    }
+    
+    .card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.1) !important;
+    }
+    
+    .category-card {
+        border: 1px solid #dee2e6;
+        transition: all 0.2s;
+    }
+    
+    .category-card:hover {
+        background-color: #f8f9fa;
+        border-color: #0d6efd;
+        transform: translateY(-2px);
+    }
+    
+    .card-img-top-container {
+        position: relative;
+    }
+    
+    .badge {
+        font-size: 0.75rem;
+    }
+    
+    .page-item.active .page-link {
+        background-color: #0d6efd;
+        border-color: #0d6efd;
+    }
+    
+    .btn-primary {
+        background-color: #0d6efd;
+        border-color: #0d6efd;
+    }
+    
+    .btn-outline-secondary:hover {
+        color: #fff;
+        background-color: #6c757d;
+        border-color: #6c757d;
+    }
+    
+    .btn-outline-danger:hover {
+        color: #fff;
+        background-color: #dc3545;
+        border-color: #dc3545;
+    }
+    
+    .page-link {
+        cursor: pointer;
+        user-select: none;
+    }
+    
+    .page-item.disabled .page-link {
+        pointer-events: none;
+        opacity: 0.6;
+    }
+    
+    .input-group .btn-outline-secondary:hover {
+        color: #6c757d;
+        background-color: #e9ecef;
+        border-color: #ced4da;
+    }
+    
+    .spinner-border {
+        width: 3rem;
+        height: 3rem;
+    }
+    
+    /* Стили для уведомлений в карточках */
+    .notification-card {
+        animation: slideDown 0.3s ease-out;
+        position: relative;
+        z-index: 1;
+    }
+    
+    .alert-success {
+        background-color: #d1e7dd;
+        border-color: #badbcc;
+        color: #0f5132;
+        border-radius: 0.375rem;
+        padding: 0.25rem 0.5rem;
+    }
+    
+    .alert-danger {
+        background-color: #f8d7da;
+        border-color: #f5c2c7;
+        color: #842029;
+        border-radius: 0.375rem;
+        padding: 0.25rem 0.5rem;
+    }
+    
+    .btn-close-sm {
+        padding: 0.25rem;
+        font-size: 0.625rem;
+        background-size: 0.75em;
+    }
+    
+    @@keyframes slideDown {
+        from {
+            transform: translateY(-10px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+    
+    .btn-success {
+        background-color: #198754;
+        border-color: #198754;
+    }
+    
+    .btn-success:hover {
+        background-color: #157347;
+        border-color: #146c43;
+    }
+    
+    /* Улучшения для отображения уведомлений в карточках */
+    .alert {
+        margin-bottom: 0.5rem;
+        font-size: 0.75rem;
+        line-height: 1.2;
+    }
+    
+    .alert-dismissible .btn-close {
+        padding: 0.5rem 0.5rem;
+        top: -0.25rem;
+        right: -0.25rem;
+    }
+    
+    /* Плавное исчезновение уведомлений */
+    .alert.fade.show {
+        transition: opacity 0.5s ease-out;
+    }
+    
+    /* Анимация для кнопки добавления в корзину */
+    .btn-primary:disabled {
+        opacity: 0.65;
+        cursor: not-allowed;
+    }
+    
+    .btn-primary .spinner-border {
+        width: 1rem;
+        height: 1rem;
+        border-width: 0.15em;
+    }
+</style>

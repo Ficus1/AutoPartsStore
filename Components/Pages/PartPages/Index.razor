@@ -1,0 +1,202 @@
+﻿@page "/parts"
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.QuickGrid
+@using AutoPartsStore.Data
+@implements IAsyncDisposable
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Administrator,Manager")]
+@rendermode InteractiveServer
+
+<PageTitle>Запчасти</PageTitle>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="mb-4">Каталог запчастей</h2>
+
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <div class="input-group">
+                    <span class="input-group-text">
+                        <i class="bi bi-search"></i>
+                    </span>
+                    <input type="text" class="form-control" 
+                           placeholder="Поиск по названию, артикулу..." 
+                           value="@searchText" 
+                           @oninput="(e) => { searchText = e.Value?.ToString(); ApplyFilters(); }" />
+                </div>
+            </div>
+            
+            <div class="col-md-3">
+                <select class="form-select" value="@selectedManufacturerId" @onchange="(e) => { selectedManufacturerId = string.IsNullOrEmpty(e.Value?.ToString()) ? (int?)null : Convert.ToInt32(e.Value); ApplyFilters(); }">
+                    <option value="">Все производители</option>
+                    @foreach (var manufacturer in manufacturers)
+                    {
+                        <option value="@manufacturer.ManufacturerId">@manufacturer.Name</option>
+                    }
+                </select>
+            </div>
+            
+            <div class="col-md-3">
+                <select class="form-select" value="@selectedCategoryId" @onchange="(e) => { selectedCategoryId = string.IsNullOrEmpty(e.Value?.ToString()) ? (int?)null : Convert.ToInt32(e.Value); ApplyFilters(); }">
+                    <option value="">Все категории</option>
+                    @foreach (var category in categories)
+                    {
+                        <option value="@category.CategoryId">@category.Name</option>
+                    }
+                </select>
+            </div>
+            
+            <div class="col-md-2 d-flex align-items-center">
+                <a href="parts/create" class="btn btn-primary w-100">
+                    <i class="bi bi-plus-circle me-1"></i> Добавить
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (filteredParts.Any())
+{
+    <QuickGrid Items="filteredParts.AsQueryable()" Class="table table-striped table-sm">
+        <PropertyColumn Title="Название" Property="part => part.Name" Sortable="true" />
+        <PropertyColumn Title="Артикул" Property="part => part.Article" Sortable="true" />
+        
+        <TemplateColumn Title="Производитель">
+            <span>@context.Manufacturer?.Name</span>
+        </TemplateColumn>
+        
+        <TemplateColumn Title="Категория">
+            <span>@context.Category?.Name</span>
+        </TemplateColumn>
+        
+        <PropertyColumn Title="Цена, ₽" Property="part => part.Price" Sortable="true">
+            <ColumnOptions>
+                <Format FormatString="N2" />
+            </ColumnOptions>
+        </PropertyColumn>
+        
+        <TemplateColumn Title="На складе">
+            @{
+                var stockQuantity = context.StockQuantity;
+            }
+            @if (stockQuantity > 10)
+            {
+                <span class="text-success">@stockQuantity шт</span>
+            }
+            else if (stockQuantity > 0)
+            {
+                <span class="text-warning">@stockQuantity шт</span>
+            }
+            else
+            {
+                <span class="text-danger">Нет</span>
+            }
+        </TemplateColumn>
+        
+        <TemplateColumn Title="Действия">
+            <div class="d-flex gap-2">
+                <a href="@($"parts/details?partid={context.PartId}")" 
+                   class="btn btn-sm btn-outline-secondary"><i class="bi bi-eye me-1"></i>Подробнее</a>
+                <a href="@($"parts/edit?partid={context.PartId}")" 
+                   class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil me-1"></i>Изменить</a>
+                <a href="@($"parts/delete?partid={context.PartId}")" 
+                   class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Удалить</a>
+            </div>
+        </TemplateColumn>
+    </QuickGrid>
+    
+    <div class="mt-3 text-muted small">
+        Показано @filteredParts.Count из @parts.Count запчастей
+    </div>
+}
+else
+{
+    <div class="alert alert-info">
+        <p class="mb-0">
+            @if (!string.IsNullOrEmpty(searchText) || selectedManufacturerId.HasValue || selectedCategoryId.HasValue)
+            {
+                <span>Запчасти по заданным критериям не найдены. <button @onclick="ResetFilters" class="btn btn-link p-0 alert-link">Сбросить фильтры</button></span>
+            }
+            else
+            {
+                <span>Нет доступных запчастей. Добавьте первую запчасть в каталог.</span>
+            }
+        </p>
+    </div>
+}
+
+@code {
+    private List<Part> parts = new();
+    private List<Part> filteredParts = new();
+    private List<Manufacturer> manufacturers = new();
+    private List<Category> categories = new();
+    private AutoPartsContext context = default!;
+
+    // Параметры фильтрации
+    private string searchText = string.Empty;
+    private int? selectedManufacturerId;
+    private int? selectedCategoryId;
+
+    protected override void OnInitialized()
+    {
+        context = DbFactory.CreateDbContext();
+        LoadData();
+    }
+
+    private void LoadData()
+    {
+        parts = context.Parts
+            .Include(p => p.Manufacturer)
+            .Include(p => p.Category)
+            .OrderBy(p => p.Name)
+            .ToList();
+
+        manufacturers = context.Manufacturers
+            .OrderBy(m => m.Name)
+            .ToList();
+
+        categories = context.Categories
+            .OrderBy(c => c.Name)
+            .ToList();
+
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        var query = parts.AsQueryable();
+
+        if (!string.IsNullOrEmpty(searchText))
+        {
+            var searchLower = searchText.ToLower();
+            query = query.Where(p => 
+                p.Name.ToLower().Contains(searchLower) ||
+                p.Article.ToLower().Contains(searchLower));
+        }
+
+        if (selectedManufacturerId.HasValue)
+        {
+            query = query.Where(p => p.ManufacturerId == selectedManufacturerId.Value);
+        }
+
+        if (selectedCategoryId.HasValue)
+        {
+            query = query.Where(p => p.CategoryId == selectedCategoryId.Value);
+        }
+
+        filteredParts = query.ToList();
+    }
+
+    private void ResetFilters()
+    {
+        searchText = string.Empty;
+        selectedManufacturerId = null;
+        selectedCategoryId = null;
+        ApplyFilters();
+    }
+
+    public async ValueTask DisposeAsync() => await context.DisposeAsync();
+}

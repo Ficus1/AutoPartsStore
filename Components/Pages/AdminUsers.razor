@@ -1,0 +1,1505 @@
+@page "/admin/users"
+@using AutoPartsStore.Data
+@using DocumentFormat.OpenXml.Spreadsheet
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Administrator")]
+@rendermode InteractiveServer
+@implements IDisposable
+
+<PageTitle>Управление пользователями</PageTitle>
+
+<div class="container mt-4">
+    <h2 class="mb-4">Управление пользователями</h2>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0">Фильтры и поиск</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="searchEmail" class="form-label">Поиск по Email</label>
+                    <div class="input-group">
+                        <span class="input-group-text">
+                            <i class="bi bi-search"></i>
+                        </span>
+                        <input type="text" 
+                               class="form-control" 
+                               id="searchEmail"
+                               placeholder="Введите email пользователя..."
+                               @bind="searchEmail"
+                               @bind:event="oninput"
+                               @bind:after="OnSearchEmailChanged" />
+                        @if (!string.IsNullOrEmpty(searchEmail))
+                        {
+                            <button class="btn btn-outline-secondary" 
+                                    type="button" 
+                                    @onclick="ClearSearch">
+                                <i class="bi bi-x-circle"></i>
+                            </button>
+                        }
+                    </div>
+                    <div class="form-text">Введите часть email для поиска</div>
+                </div>
+                
+                <div class="col-md-6">
+                    <label for="roleFilter" class="form-label">Фильтр по роли</label>
+                    <select class="form-select" 
+                            id="roleFilter" 
+                            @bind="selectedRole"
+                            @bind:after="OnSelectedRoleChanged">
+                        <option value="">Все роли</option>
+                        @foreach (var role in availableRoles)
+                        {
+                            <option value="@role">@role</option>
+                        }
+                    </select>
+                </div>
+                
+                <div class="col-12">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="badge bg-info">
+                                Найдено: @filteredUsers.Count пользователей
+                            </span>
+                        </div>
+                        <div>
+                            <button class="btn btn-outline-secondary" @onclick="ResetFilters">
+                                <i class="bi bi-arrow-clockwise"></i> Сбросить фильтры
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Список пользователей</h5>
+            <div>
+                <button class="btn btn-light btn-sm me-2" @onclick="RefreshUsers" title="Обновить список">
+                    <i class="bi bi-arrow-clockwise"></i> Обновить
+                </button>
+                <button class="btn btn-success btn-sm" @onclick="ShowAddUserModal" title="Добавить пользователя">
+                    <i class="bi bi-person-plus"></i> Добавить
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (loading)
+            {
+                <div class="text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p>Загрузка пользователей...</p>
+                </div>
+            }
+            else
+            {
+                @if (HasFilters)
+                {
+                    <div class="alert alert-info mb-3">
+                        <i class="bi bi-info-circle"></i> 
+                        Применены фильтры: 
+                        @if (!string.IsNullOrEmpty(searchEmail))
+                        {
+                            <span class="badge bg-secondary me-2">Email: @searchEmail</span>
+                        }
+                        @if (!string.IsNullOrEmpty(selectedRole))
+                        {
+                            <span class="badge bg-secondary">Роль: @selectedRole</span>
+                        }
+                        <button class="btn btn-link p-0 ms-2" @onclick="ResetFilters">
+                            <small>Сбросить</small>
+                        </button>
+                    </div>
+                }
+
+                <div class="table-responsive">
+                    <table class="table table-hover table-striped">
+                        <thead class="table-light">
+                            <tr>
+                                <th>
+                                    <button class="btn btn-link p-0 text-decoration-none" @onclick="SortByEmail">
+                                        Email
+                                        @if (sortBy == "Email")
+                                        {
+                                            <i class="bi @(sortAscending ? "bi-sort-down" : "bi-sort-up")"></i>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-sort"></i>
+                                        }
+                                    </button>
+                                </th>
+                                <th>ФИО</th>
+                                <th>Телефон</th>
+                                <th>
+                                    <button class="btn btn-link p-0 text-decoration-none" @onclick="SortByRegistrationDate">
+                                        Дата регистрации
+                                        @if (sortBy == "RegistrationDate")
+                                        {
+                                            <i class="bi @(sortAscending ? "bi-sort-down" : "bi-sort-up")"></i>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-sort"></i>
+                                        }
+                                    </button>
+                                </th>
+                                <th>Роли</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var user in filteredUsers)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi bi-envelope me-1 text-muted"></i>
+                                            <span>@user.Email</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(user.LastName) || !string.IsNullOrEmpty(user.FirstName))
+                                        {
+                                            <span>@user.LastName @user.FirstName @user.MiddleName</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">Не указано</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(user.PhoneNumber))
+                                        {
+                                            <span>@user.PhoneNumber</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">Не указан</span>
+                                        }
+                                    </td>
+                                    <td>@user.RegistrationDate.ToString("dd.MM.yyyy HH:mm")</td>
+                                    <td>
+                                        @if (userRoles.ContainsKey(user.Id))
+                                        {
+                                            <div class="d-flex flex-wrap gap-1">
+                                                @foreach (var role in userRoles[user.Id])
+                                                {
+                                                    <span class="badge @GetRoleBadgeClass(role)">@role</span>
+                                                }
+                                            </div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button class="btn btn-outline-primary" 
+                                                    @onclick="() => ShowUserDetails(user)"
+                                                    title="Просмотреть детали">
+                                                <i class="bi bi-eye"></i>
+                                            </button>
+                                            <button class="btn btn-outline-warning" 
+                                                    @onclick="() => ShowEditUserModal(user)"
+                                                    title="Редактировать пользователя">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button class="btn btn-outline-danger" 
+                                                    @onclick="() => ShowDeleteConfirmation(user)"
+                                                    title="Удалить пользователя">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                @if (!filteredUsers.Any())
+                {
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i> 
+                        @if (HasFilters)
+                        {
+                            <span>Пользователи по заданным фильтрам не найдены.</span>
+                            <button class="btn btn-link p-0 ms-1" @onclick="ResetFilters">Показать всех</button>
+                        }
+                        else
+                        {
+                            <span>Пользователи не найдены</span>
+                        }
+                    </div>
+                }
+
+                <!-- Пагинация -->
+                @if (totalPages > 1)
+                {
+                    <nav aria-label="Навигация по страницам">
+                        <ul class="pagination justify-content-center">
+                            <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                                <button class="page-link" @onclick="() => ChangePage(currentPage - 1)" 
+                                        aria-label="Предыдущая">
+                                    <span aria-hidden="true">&laquo;</span>
+                                </button>
+                            </li>
+                            
+                            @for (int i = Math.Max(1, currentPage - 2); i <= Math.Min(totalPages, currentPage + 2); i++)
+                            {
+                                <li class="page-item @(i == currentPage ? "active" : "")">
+                                    <button class="page-link" @onclick="() => ChangePage(i)">@i</button>
+                                </li>
+                            }
+                            
+                            <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                                <button class="page-link" @onclick="() => ChangePage(currentPage + 1)" 
+                                        aria-label="Следующая">
+                                    <span aria-hidden="true">&raquo;</span>
+                                </button>
+                            </li>
+                        </ul>
+                    </nav>
+                }
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно добавления пользователя -->
+@if (showAddUserModal)
+{
+    <div class="modal show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title">Добавить нового пользователя</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseAddUserModal"></button>
+                </div>
+                <form @onsubmit="AddUser">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="email" class="form-label">Email*</label>
+                            <input type="email" 
+                                   class="form-control @(addUserErrors.ContainsKey("Email") ? "is-invalid" : "")" 
+                                   id="email"
+                                   placeholder="user@example.com"
+                                   @bind="newUser.Email"
+                                   required>
+                            @if (addUserErrors.ContainsKey("Email"))
+                            {
+                                <div class="invalid-feedback">@addUserErrors["Email"]</div>
+                            }
+                        </div>
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="lastName" class="form-label">Фамилия*</label>
+                                <input type="text" 
+                                       class="form-control @(addUserErrors.ContainsKey("LastName") ? "is-invalid" : "")" 
+                                       id="lastName"
+                                       placeholder="Иванов"
+                                       @bind="newUser.LastName"
+                                       required>
+                                @if (addUserErrors.ContainsKey("LastName"))
+                                {
+                                    <div class="invalid-feedback">@addUserErrors["LastName"]</div>
+                                }
+                            </div>
+                            <div class="col-md-6">
+                                <label for="firstName" class="form-label">Имя*</label>
+                                <input type="text" 
+                                       class="form-control @(addUserErrors.ContainsKey("FirstName") ? "is-invalid" : "")" 
+                                       id="firstName"
+                                       placeholder="Иван"
+                                       @bind="newUser.FirstName"
+                                       required>
+                                @if (addUserErrors.ContainsKey("FirstName"))
+                                {
+                                    <div class="invalid-feedback">@addUserErrors["FirstName"]</div>
+                                }
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="middleName" class="form-label">Отчество</label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   id="middleName"
+                                   placeholder="Иванович"
+                                   @bind="newUser.MiddleName">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="phone" class="form-label">Телефон</label>
+                            <input type="tel" 
+                                   class="form-control @(addUserErrors.ContainsKey("PhoneNumber") ? "is-invalid" : "")" 
+                                   id="phone"
+                                   placeholder="+79991234567"
+                                   @bind="newUser.PhoneNumber">
+                            @if (addUserErrors.ContainsKey("PhoneNumber"))
+                            {
+                                <div class="invalid-feedback">@addUserErrors["PhoneNumber"]</div>
+                            }
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="address" class="form-label">Адрес</label>
+                            <textarea class="form-control" 
+                                      id="address" 
+                                      rows="2"
+                                      placeholder="г. Москва, ул. Ленина, д. 10"
+                                      @bind="newUser.Address"></textarea>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Пароль*</label>
+                            <input type="password" 
+                                   class="form-control @(addUserErrors.ContainsKey("Password") ? "is-invalid" : "")" 
+                                   id="password"
+                                   placeholder="Минимум 6 символов"
+                                   @bind="newUser.Password"
+                                   required>
+                            @if (addUserErrors.ContainsKey("Password"))
+                            {
+                                <div class="invalid-feedback">@addUserErrors["Password"]</div>
+                            }
+                            <div class="form-text">Пароль должен содержать минимум 6 символов</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="confirmPassword" class="form-label">Подтверждение пароля*</label>
+                            <input type="password" 
+                                   class="form-control @(addUserErrors.ContainsKey("ConfirmPassword") ? "is-invalid" : "")" 
+                                   id="confirmPassword"
+                                   placeholder="Повторите пароль"
+                                   @bind="newUser.ConfirmPassword"
+                                   required>
+                            @if (addUserErrors.ContainsKey("ConfirmPassword"))
+                            {
+                                <div class="invalid-feedback">@addUserErrors["ConfirmPassword"]</div>
+                            }
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Роли</label>
+                            <div>
+                                @foreach (var role in availableRoles)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input" 
+                                               type="checkbox" 
+                                               id="add-role-@role"
+                                               value="@role"
+                                               @onchange="(e) => OnAddRoleCheckboxChange(e, role)">
+                                        <label class="form-check-label" for="add-role-@role">
+                                            @role
+                                        </label>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                        
+                        @if (!string.IsNullOrEmpty(addUserMessage))
+                        {
+                            <div class="alert @(addUserSuccess ? "alert-success" : "alert-danger") mt-3">
+                                @addUserMessage
+                            </div>
+                        }
+                        
+                        @if (addingUser)
+                        {
+                            <div class="text-center mt-3">
+                                <div class="spinner-border text-success" role="status">
+                                    <span class="visually-hidden">Создание пользователя...</span>
+                                </div>
+                                <p class="mt-2">Создание пользователя...</p>
+                            </div>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseAddUserModal" disabled="@addingUser">
+                            Отмена
+                        </button>
+                        <button type="submit" class="btn btn-success" disabled="@addingUser">
+                            <i class="bi bi-person-plus"></i> Создать пользователя
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Модальное окно редактирования пользователя -->
+@if (showEditUserModal && userToEdit != null)
+{
+    <div class="modal show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-white">
+                    <h5 class="modal-title">Редактировать пользователя</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseEditUserModal"></button>
+                </div>
+                <form @onsubmit="UpdateUser">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="edit-email" class="form-label">Email*</label>
+                            <input type="email" 
+                                   class="form-control @(editUserErrors.ContainsKey("Email") ? "is-invalid" : "")" 
+                                   id="edit-email"
+                                   placeholder="user@example.com"
+                                   @bind="editUser.Email"
+                                   required>
+                            @if (editUserErrors.ContainsKey("Email"))
+                            {
+                                <div class="invalid-feedback">@editUserErrors["Email"]</div>
+                            }
+                        </div>
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="edit-lastName" class="form-label">Фамилия*</label>
+                                <input type="text" 
+                                       class="form-control @(editUserErrors.ContainsKey("LastName") ? "is-invalid" : "")" 
+                                       id="edit-lastName"
+                                       placeholder="Иванов"
+                                       @bind="editUser.LastName"
+                                       required>
+                                @if (editUserErrors.ContainsKey("LastName"))
+                                {
+                                    <div class="invalid-feedback">@editUserErrors["LastName"]</div>
+                                }
+                            </div>
+                            <div class="col-md-6">
+                                <label for="edit-firstName" class="form-label">Имя*</label>
+                                <input type="text" 
+                                       class="form-control @(editUserErrors.ContainsKey("FirstName") ? "is-invalid" : "")" 
+                                       id="edit-firstName"
+                                       placeholder="Иван"
+                                       @bind="editUser.FirstName"
+                                       required>
+                                @if (editUserErrors.ContainsKey("FirstName"))
+                                {
+                                    <div class="invalid-feedback">@editUserErrors["FirstName"]</div>
+                                }
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="edit-middleName" class="form-label">Отчество</label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   id="edit-middleName"
+                                   placeholder="Иванович"
+                                   @bind="editUser.MiddleName">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="edit-phone" class="form-label">Телефон</label>
+                            <input type="tel" 
+                                   class="form-control @(editUserErrors.ContainsKey("PhoneNumber") ? "is-invalid" : "")" 
+                                   id="edit-phone"
+                                   placeholder="+79991234567"
+                                   @bind="editUser.PhoneNumber">
+                            @if (editUserErrors.ContainsKey("PhoneNumber"))
+                            {
+                                <div class="invalid-feedback">@editUserErrors["PhoneNumber"]</div>
+                            }
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="edit-address" class="form-label">Адрес</label>
+                            <textarea class="form-control" 
+                                      id="edit-address" 
+                                      rows="2"
+                                      placeholder="г. Москва, ул. Ленина, д. 10"
+                                      @bind="editUser.Address"></textarea>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Роли</label>
+                            <div>
+                                @foreach (var role in availableRoles)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input" 
+                                               type="checkbox" 
+                                               id="edit-role-@role"
+                                               value="@role"
+                                               checked="@(editSelectedRoles.Contains(role))"
+                                               @onchange="(e) => OnEditRoleCheckboxChange(e, role)">
+                                        <label class="form-check-label" for="edit-role-@role">
+                                            @role
+                                        </label>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                        
+                        @if (isLastAdmin && editSelectedRoles.Contains("Administrator"))
+                        {
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle"></i> 
+                                <strong>Внимание!</strong> Этот пользователь является последним администратором. 
+                                Удаление роли "Administrator" невозможно.
+                            </div>
+                        }
+                        
+                        @if (!string.IsNullOrEmpty(editUserMessage))
+                        {
+                            <div class="alert @(editUserSuccess ? "alert-success" : "alert-danger") mt-3">
+                                @editUserMessage
+                            </div>
+                        }
+                        
+                        @if (updatingUser)
+                        {
+                            <div class="text-center mt-3">
+                                <div class="spinner-border text-warning" role="status">
+                                    <span class="visually-hidden">Обновление пользователя...</span>
+                                </div>
+                                <p class="mt-2">Обновление пользователя...</p>
+                            </div>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseEditUserModal" disabled="@updatingUser">
+                            Отмена
+                        </button>
+                        <button type="submit" class="btn btn-warning" disabled="@updatingUser">
+                            <i class="bi bi-save"></i> Сохранить изменения
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Модальное окно подтверждения удаления -->
+@if (showDeleteModal && userToDelete != null)
+{
+    <div class="modal show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">Подтверждение удаления</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseDeleteModal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Вы уверены, что хотите удалить пользователя:</p>
+                    <p><strong>@userToDelete.Email</strong> - @userToDelete.LastName @userToDelete.FirstName?</p>
+                    
+                    @if (IsCurrentUser(userToDelete))
+                    {
+                        <div class="alert alert-warning">
+                            <i class="bi bi-exclamation-triangle"></i> 
+                            <strong>Внимание!</strong> Вы пытаетесь удалить свою собственную учетную запись.<br>
+                            После удаления вы будете автоматически выведены из системы.
+                        </div>
+                    }
+                    
+                    @if (isLastAdmin)
+                    {
+                        <div class="alert alert-danger">
+                            <i class="bi bi-exclamation-triangle-fill"></i> 
+                            <strong>Ошибка!</strong> Нельзя удалить последнего администратора системы.<br>
+                            Сначала назначьте другого пользователя администратором.
+                        </div>
+                    }
+                    
+                    @if (!string.IsNullOrEmpty(deleteErrorMessage))
+                    {
+                        <div class="alert alert-danger mt-2">
+                            <i class="bi bi-exclamation-triangle"></i> @deleteErrorMessage
+                        </div>
+                    }
+                    
+                    @if (deleting)
+                    {
+                        <div class="text-center mt-3">
+                            <div class="spinner-border text-danger" role="status">
+                                <span class="visually-hidden">Удаление...</span>
+                            </div>
+                            <p class="mt-2">Удаление пользователя...</p>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseDeleteModal" disabled="@deleting">
+                        Отмена
+                    </button>
+                    <button type="button" class="btn btn-danger" @onclick="DeleteUser" 
+                            disabled="@deleting">
+                        <i class="bi bi-trash"></i> Удалить
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Модальное окно деталей пользователя -->
+@if (showDetailsModal && selectedUser != null)
+{
+    <div class="modal show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title">Детали пользователя</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseDetailsModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-4 text-center">
+                            <div class="mb-3">
+                                <div class="bg-light rounded-circle d-inline-flex align-items-center justify-content-center" 
+                                     style="width: 120px; height: 120px;">
+                                    <i class="bi bi-person" style="font-size: 3rem; color: #6c757d;"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-8">
+                            <h5>@selectedUser.LastName @selectedUser.FirstName @selectedUser.MiddleName</h5>
+                            <hr />
+                            
+                            <dl class="row">
+                                <dt class="col-sm-4">Email:</dt>
+                                <dd class="col-sm-8">@selectedUser.Email</dd>
+                                
+                                <dt class="col-sm-4">Телефон:</dt>
+                                <dd class="col-sm-8">@(selectedUser.PhoneNumber ?? "Не указан")</dd>
+                                
+                                <dt class="col-sm-4">Адрес:</dt>
+                                <dd class="col-sm-8">@(selectedUser.Address ?? "Не указан")</dd>
+                                
+                                <dt class="col-sm-4">Дата регистрации:</dt>
+                                <dd class="col-sm-8">@selectedUser.RegistrationDate.ToString("dd.MM.yyyy HH:mm:ss")</dd>
+                                
+                                <dt class="col-sm-4">Роли:</dt>
+                                <dd class="col-sm-8">
+                                    @if (userRoles.ContainsKey(selectedUser.Id))
+                                    {
+                                        <div class="d-flex flex-wrap gap-1">
+                                            @foreach (var role in userRoles[selectedUser.Id])
+                                            {
+                                                <span class="badge @GetRoleBadgeClass(role)">@role</span>
+                                            }
+                                        </div>
+                                    }
+                                </dd>
+                                
+                                <dt class="col-sm-4">Email подтвержден:</dt>
+                                <dd class="col-sm-8">
+                                    @if (selectedUser.EmailConfirmed)
+                                    {
+                                        <span class="badge bg-success">Да</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-warning">Нет</span>
+                                    }
+                                </dd>
+                                
+                                <dt class="col-sm-4">ID пользователя:</dt>
+                                <dd class="col-sm-8">
+                                    <small class="text-muted">@selectedUser.Id</small>
+                                </dd>
+                            </dl>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseDetailsModal">
+                        Закрыть
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ApplicationUser> allUsers = new();
+    private List<ApplicationUser> filteredUsers = new();
+    private Dictionary<string, List<string>> userRoles = new();
+    private List<string> availableRoles = new();
+    private bool loading = true;
+    private bool showDeleteModal = false;
+    private bool showDetailsModal = false;
+    private bool showAddUserModal = false;
+    private bool showEditUserModal = false;
+    private bool deleting = false;
+    private bool addingUser = false;
+    private bool updatingUser = false;
+    private ApplicationUser? userToDelete = null;
+    private ApplicationUser? userToEdit = null;
+    private ApplicationUser? selectedUser = null;
+    private string deleteErrorMessage = string.Empty;
+    private string searchEmail = string.Empty;
+    private string selectedRole = string.Empty;
+    private string sortBy = "Email";
+    private bool sortAscending = true;
+    private Timer? debounceTimer;
+    private CancellationTokenSource? filterCts;
+    private bool isLastAdmin = false;
+    
+    // Для добавления пользователя
+    private AddUserModel newUser = new();
+    private Dictionary<string, string> addUserErrors = new();
+    private string addUserMessage = string.Empty;
+    private bool addUserSuccess = false;
+    private List<string> addSelectedRoles = new();
+    
+    // Для редактирования пользователя
+    private EditUserModel editUser = new();
+    private Dictionary<string, string> editUserErrors = new();
+    private string editUserMessage = string.Empty;
+    private bool editUserSuccess = false;
+    private List<string> editSelectedRoles = new();
+    
+    // Пагинация
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private int totalPages = 1;
+
+    [Inject] private UserManager<ApplicationUser> UserManager { get; set; } = null!;
+    [Inject] private RoleManager<IdentityRole> RoleManager { get; set; } = null!;
+    [Inject] private NavigationManager Navigation { get; set; } = null!;
+    [Inject] private ILogger<Users> Logger { get; set; } = null!;
+    [Inject] private AuthenticationStateProvider AuthenticationStateProvider { get; set; } = null!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadUsers();
+            await LoadAvailableRoles();
+            ApplyFilters();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Ошибка при загрузке пользователей");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task LoadUsers()
+    {
+        allUsers = await UserManager.Users.ToListAsync();
+        
+        // Загружаем роли для каждого пользователя
+        userRoles.Clear();
+        foreach (var user in allUsers)
+        {
+            var roles = await UserManager.GetRolesAsync(user);
+            userRoles[user.Id] = roles.ToList();
+        }
+    }
+
+    private async Task LoadAvailableRoles()
+    {
+        var roles = await RoleManager.Roles.ToListAsync<IdentityRole>();
+        availableRoles = roles.Select(r => r.Name!).Where(n => !string.IsNullOrEmpty(n)).ToList();
+    }
+
+    private async Task OnSearchEmailChanged()
+    {
+        // Дебаунс для поиска - ждем 300мс после последнего ввода
+        debounceTimer?.Dispose();
+        debounceTimer = new Timer(async _ =>
+        {
+            await InvokeAsync(() =>
+            {
+                currentPage = 1; // Сбрасываем на первую страницу
+                ApplyFilters();
+                StateHasChanged();
+            });
+        }, null, 300, Timeout.Infinite);
+    }
+
+    private Task OnSelectedRoleChanged()
+    {
+        // Для фильтра по ролям применяем сразу
+        currentPage = 1; // Сбрасываем на первую страницу
+        ApplyFilters();
+        return Task.CompletedTask;
+    }
+
+    private void ApplyFilters()
+    {
+        // Отменяем предыдущую операцию фильтрации если она еще выполняется
+        filterCts?.Cancel();
+        filterCts = new CancellationTokenSource();
+        
+        var token = filterCts.Token;
+
+        Task.Run(() =>
+        {
+            if (token.IsCancellationRequested) return;
+
+            var query = allUsers.AsQueryable();
+
+            // Поиск по email
+            if (!string.IsNullOrEmpty(searchEmail))
+            {
+                query = query.Where(u => 
+                    u.Email != null && 
+                    u.Email.Contains(searchEmail, StringComparison.OrdinalIgnoreCase));
+            }
+
+            // Фильтр по роли
+            if (!string.IsNullOrEmpty(selectedRole))
+            {
+                query = query.Where(u => 
+                    userRoles.ContainsKey(u.Id) && 
+                    userRoles[u.Id].Contains(selectedRole));
+            }
+
+            // Сортировка
+            query = sortBy switch
+            {
+                "Email" => sortAscending 
+                    ? query.OrderBy(u => u.Email) 
+                    : query.OrderByDescending(u => u.Email),
+                "RegistrationDate" => sortAscending 
+                    ? query.OrderBy(u => u.RegistrationDate) 
+                    : query.OrderByDescending(u => u.RegistrationDate),
+                _ => query.OrderBy(u => u.Email)
+            };
+
+            var allFiltered = query.ToList();
+            
+            InvokeAsync(() =>
+            {
+                if (token.IsCancellationRequested) return;
+                
+                CalculatePagination(allFiltered);
+                StateHasChanged();
+            });
+        }, token);
+    }
+
+    private void CalculatePagination(List<ApplicationUser> allFiltered)
+    {
+        totalPages = (int)Math.Ceiling(allFiltered.Count / (double)pageSize);
+        currentPage = Math.Max(1, Math.Min(currentPage, totalPages));
+        
+        // Получаем текущую страницу
+        var startIndex = (currentPage - 1) * pageSize;
+        filteredUsers = allFiltered
+            .Skip(startIndex)
+            .Take(pageSize)
+            .ToList();
+    }
+
+    private void SortByEmail()
+    {
+        if (sortBy == "Email")
+        {
+            sortAscending = !sortAscending;
+        }
+        else
+        {
+            sortBy = "Email";
+            sortAscending = true;
+        }
+        currentPage = 1;
+        ApplyFilters();
+    }
+
+    private void SortByRegistrationDate()
+    {
+        if (sortBy == "RegistrationDate")
+        {
+            sortAscending = !sortAscending;
+        }
+        else
+        {
+            sortBy = "RegistrationDate";
+            sortAscending = true;
+        }
+        currentPage = 1;
+        ApplyFilters();
+    }
+
+    private void ChangePage(int page)
+    {
+        currentPage = page;
+        ApplyFilters();
+    }
+
+    private void ClearSearch()
+    {
+        searchEmail = string.Empty;
+        currentPage = 1;
+        ApplyFilters();
+    }
+
+    private void ResetFilters()
+    {
+        searchEmail = string.Empty;
+        selectedRole = string.Empty;
+        sortBy = "Email";
+        sortAscending = true;
+        currentPage = 1;
+        ApplyFilters();
+    }
+
+    private async Task RefreshUsers()
+    {
+        loading = true;
+        StateHasChanged();
+        
+        try
+        {
+            await LoadUsers();
+            await LoadAvailableRoles();
+            ApplyFilters();
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private void ShowAddUserModal()
+    {
+        newUser = new AddUserModel();
+        addSelectedRoles.Clear();
+        addUserErrors.Clear();
+        addUserMessage = string.Empty;
+        addUserSuccess = false;
+        showAddUserModal = true;
+    }
+
+    private void CloseAddUserModal()
+    {
+        if (!addingUser)
+        {
+            showAddUserModal = false;
+            newUser = new AddUserModel();
+            addSelectedRoles.Clear();
+            addUserErrors.Clear();
+            addUserMessage = string.Empty;
+        }
+    }
+
+    private void OnAddRoleCheckboxChange(ChangeEventArgs e, string role)
+    {
+        var isChecked = (bool?)e.Value ?? false;
+        if (isChecked)
+        {
+            if (!addSelectedRoles.Contains(role))
+                addSelectedRoles.Add(role);
+        }
+        else
+        {
+            addSelectedRoles.Remove(role);
+        }
+    }
+
+    private async Task AddUser()
+    {
+        addingUser = true;
+        addUserErrors.Clear();
+        addUserMessage = string.Empty;
+        addUserSuccess = false;
+        StateHasChanged();
+
+        try
+        {
+            // Валидация
+            if (string.IsNullOrWhiteSpace(newUser.Email))
+                addUserErrors["Email"] = "Email обязателен";
+            else if (!IsValidEmail(newUser.Email))
+                addUserErrors["Email"] = "Неверный формат email";
+            else if (await UserManager.FindByEmailAsync(newUser.Email) != null)
+                addUserErrors["Email"] = "Пользователь с таким email уже существует";
+
+            if (string.IsNullOrWhiteSpace(newUser.LastName))
+                addUserErrors["LastName"] = "Фамилия обязательна";
+
+            if (string.IsNullOrWhiteSpace(newUser.FirstName))
+                addUserErrors["FirstName"] = "Имя обязательно";
+
+            if (string.IsNullOrWhiteSpace(newUser.Password))
+                addUserErrors["Password"] = "Пароль обязателен";
+            else if (newUser.Password.Length < 6)
+                addUserErrors["Password"] = "Пароль должен содержать минимум 6 символов";
+
+            if (string.IsNullOrWhiteSpace(newUser.ConfirmPassword))
+                addUserErrors["ConfirmPassword"] = "Подтверждение пароля обязательно";
+            else if (newUser.Password != newUser.ConfirmPassword)
+                addUserErrors["ConfirmPassword"] = "Пароли не совпадают";
+
+            if (addUserErrors.Any())
+            {
+                addingUser = false;
+                StateHasChanged();
+                return;
+            }
+
+            // Создание пользователя
+            var user = new ApplicationUser
+            {
+                UserName = newUser.Email,
+                Email = newUser.Email,
+                LastName = newUser.LastName,
+                FirstName = newUser.FirstName,
+                MiddleName = newUser.MiddleName,
+                PhoneNumber = newUser.PhoneNumber,
+                Address = newUser.Address,
+                EmailConfirmed = true,
+                RegistrationDate = DateTime.Now
+            };
+
+            var result = await UserManager.CreateAsync(user, newUser.Password);
+            
+            if (result.Succeeded)
+            {
+                // Назначение ролей
+                if (addSelectedRoles.Any())
+                {
+                    var roleResult = await UserManager.AddToRolesAsync(user, addSelectedRoles);
+                    if (!roleResult.Succeeded)
+                    {
+                        addUserMessage = "Пользователь создан, но не удалось назначить все роли: " + 
+                            string.Join(", ", roleResult.Errors.Select(e => e.Description));
+                        addUserSuccess = false;
+                    }
+                    else
+                    {
+                        addUserMessage = "Пользователь успешно создан!";
+                        addUserSuccess = true;
+                    }
+                }
+                else
+                {
+                    addUserMessage = "Пользователь успешно создан!";
+                    addUserSuccess = true;
+                }
+
+                // Обновляем список пользователей
+                await LoadUsers();
+                ApplyFilters();
+                
+                // Очищаем форму через 2 секунды
+                if (addUserSuccess)
+                {
+                    await Task.Delay(2000);
+                    CloseAddUserModal();
+                }
+            }
+            else
+            {
+                addUserMessage = "Ошибка при создании пользователя: " + 
+                    string.Join(", ", result.Errors.Select(e => e.Description));
+                addUserSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Ошибка при создании пользователя");
+            addUserMessage = "Произошла ошибка при создании пользователя";
+            addUserSuccess = false;
+        }
+        finally
+        {
+            addingUser = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ShowEditUserModal(ApplicationUser user)
+    {
+        try
+        {
+            userToEdit = user;
+            isLastAdmin = false;
+            
+            // Проверяем, является ли пользователь последним администратором
+            if (await UserManager.IsInRoleAsync(user, "Administrator"))
+            {
+                var admins = await UserManager.GetUsersInRoleAsync("Administrator");
+                isLastAdmin = admins.Count <= 1;
+            }
+            
+            // Загружаем текущие данные пользователя
+            editUser = new EditUserModel
+            {
+                Id = user.Id,
+                Email = user.Email ?? "",
+                LastName = user.LastName ?? "",
+                FirstName = user.FirstName ?? "",
+                MiddleName = user.MiddleName,
+                PhoneNumber = user.PhoneNumber,
+                Address = user.Address
+            };
+            
+            // Загружаем текущие роли пользователя
+            editSelectedRoles.Clear();
+            if (userRoles.ContainsKey(user.Id))
+            {
+                editSelectedRoles.AddRange(userRoles[user.Id]);
+            }
+            
+            editUserErrors.Clear();
+            editUserMessage = string.Empty;
+            editUserSuccess = false;
+            showEditUserModal = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Ошибка при загрузке данных пользователя для редактирования");
+            editUserMessage = "Не удалось загрузить данные пользователя";
+            StateHasChanged();
+        }
+    }
+
+    private void CloseEditUserModal()
+    {
+        if (!updatingUser)
+        {
+            showEditUserModal = false;
+            userToEdit = null;
+            editUser = new EditUserModel();
+            editSelectedRoles.Clear();
+            editUserErrors.Clear();
+            editUserMessage = string.Empty;
+            isLastAdmin = false;
+        }
+    }
+
+    private void OnEditRoleCheckboxChange(ChangeEventArgs e, string role)
+    {
+        // Если это последний администратор и пытаемся снять роль администратора, игнорируем
+        if (isLastAdmin && role == "Administrator" && editSelectedRoles.Contains("Administrator"))
+        {
+            // Не позволяем снять роль администратора с последнего администратора
+            return;
+        }
+        
+        var isChecked = (bool?)e.Value ?? false;
+        if (isChecked)
+        {
+            if (!editSelectedRoles.Contains(role))
+                editSelectedRoles.Add(role);
+        }
+        else
+        {
+            editSelectedRoles.Remove(role);
+        }
+    }
+
+    private async Task UpdateUser()
+    {
+        if (userToEdit == null) return;
+
+        updatingUser = true;
+        editUserErrors.Clear();
+        editUserMessage = string.Empty;
+        editUserSuccess = false;
+        StateHasChanged();
+
+        try
+        {
+            // Валидация
+            if (string.IsNullOrWhiteSpace(editUser.Email))
+                editUserErrors["Email"] = "Email обязателен";
+            else if (!IsValidEmail(editUser.Email))
+                editUserErrors["Email"] = "Неверный формат email";
+            else if (editUser.Email != userToEdit.Email && await UserManager.FindByEmailAsync(editUser.Email) != null)
+                editUserErrors["Email"] = "Пользователь с таким email уже существует";
+
+            if (string.IsNullOrWhiteSpace(editUser.LastName))
+                editUserErrors["LastName"] = "Фамилия обязательна";
+
+            if (string.IsNullOrWhiteSpace(editUser.FirstName))
+                editUserErrors["FirstName"] = "Имя обязательно";
+
+            if (editUserErrors.Any())
+            {
+                updatingUser = false;
+                StateHasChanged();
+                return;
+            }
+
+            // Обновление данных пользователя
+            userToEdit.Email = editUser.Email;
+            userToEdit.UserName = editUser.Email;
+            userToEdit.LastName = editUser.LastName;
+            userToEdit.FirstName = editUser.FirstName;
+            userToEdit.MiddleName = editUser.MiddleName;
+            userToEdit.PhoneNumber = editUser.PhoneNumber;
+            userToEdit.Address = editUser.Address;
+
+            var result = await UserManager.UpdateAsync(userToEdit);
+            
+            if (result.Succeeded)
+            {
+                // Обновление ролей
+                var currentRoles = await UserManager.GetRolesAsync(userToEdit);
+                
+                // Роли для добавления
+                var rolesToAdd = editSelectedRoles.Except(currentRoles).ToList();
+                // Роли для удаления
+                var rolesToRemove = currentRoles.Except(editSelectedRoles).ToList();
+                
+                // Проверяем, не пытаемся ли мы удалить роль администратора у последнего администратора
+                if (isLastAdmin && rolesToRemove.Contains("Administrator"))
+                {
+                    editUserMessage = "Нельзя удалить роль администратора у последнего администратора системы";
+                    editUserSuccess = false;
+                    updatingUser = false;
+                    StateHasChanged();
+                    return;
+                }
+                
+                if (rolesToRemove.Any())
+                {
+                    var removeResult = await UserManager.RemoveFromRolesAsync(userToEdit, rolesToRemove);
+                    if (!removeResult.Succeeded)
+                    {
+                        editUserMessage = "Ошибка при удалении ролей: " + 
+                            string.Join(", ", removeResult.Errors.Select(e => e.Description));
+                        editUserSuccess = false;
+                    }
+                }
+                
+                if (rolesToAdd.Any())
+                {
+                    var addResult = await UserManager.AddToRolesAsync(userToEdit, rolesToAdd);
+                    if (!addResult.Succeeded)
+                    {
+                        editUserMessage = "Ошибка при добавлении ролей: " + 
+                            string.Join(", ", addResult.Errors.Select(e => e.Description));
+                        editUserSuccess = false;
+                    }
+                }
+                
+                if (string.IsNullOrEmpty(editUserMessage))
+                {
+                    editUserMessage = "Пользователь успешно обновлен!";
+                    editUserSuccess = true;
+                }
+
+                // Обновляем список пользователей
+                await LoadUsers();
+                ApplyFilters();
+                
+                // Закрываем форму через 2 секунды
+                if (editUserSuccess)
+                {
+                    await Task.Delay(2000);
+                    CloseEditUserModal();
+                }
+            }
+            else
+            {
+                editUserMessage = "Ошибка при обновлении пользователя: " + 
+                    string.Join(", ", result.Errors.Select(e => e.Description));
+                editUserSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Ошибка при обновлении пользователя");
+            editUserMessage = "Произошла ошибка при обновлении пользователя";
+            editUserSuccess = false;
+        }
+        finally
+        {
+            updatingUser = false;
+            StateHasChanged();
+        }
+    }
+
+    private bool IsValidEmail(string email)
+    {
+        try
+        {
+            var addr = new System.Net.Mail.MailAddress(email);
+            return addr.Address == email;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void ShowUserDetails(ApplicationUser user)
+    {
+        selectedUser = user;
+        showDetailsModal = true;
+    }
+
+    private void CloseDetailsModal()
+    {
+        showDetailsModal = false;
+        selectedUser = null;
+    }
+
+    private async void ShowDeleteConfirmation(ApplicationUser user)
+    {
+        try
+        {
+            userToDelete = user;
+            isLastAdmin = false;
+            
+            // Проверяем, является ли пользователь последним администратором
+            if (await UserManager.IsInRoleAsync(user, "Administrator"))
+            {
+                var admins = await UserManager.GetUsersInRoleAsync("Administrator");
+                isLastAdmin = admins.Count <= 1;
+            }
+            
+            showDeleteModal = true;
+            deleteErrorMessage = string.Empty;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Ошибка при проверке прав доступа пользователя");
+            deleteErrorMessage = "Не удалось проверить права доступа пользователя";
+            StateHasChanged();
+        }
+    }
+
+    private void CloseDeleteModal()
+    {
+        if (!deleting)
+        {
+            showDeleteModal = false;
+            userToDelete = null;
+            isLastAdmin = false;
+            deleteErrorMessage = string.Empty;
+        }
+    }
+
+    private async Task DeleteUser()
+    {
+        if (userToDelete == null) return;
+
+        deleting = true;
+        deleteErrorMessage = string.Empty;
+        StateHasChanged();
+
+        try
+        {
+            // Проверяем, является ли пользователь последним администратором
+            if (isLastAdmin)
+            {
+                deleteErrorMessage = "Нельзя удалить последнего администратора системы!";
+                deleting = false;
+                StateHasChanged();
+                return;
+            }
+
+            var result = await UserManager.DeleteAsync(userToDelete);
+            
+            if (result.Succeeded)
+            {
+                // Если удалили свою учетную запись, выходим из системы
+                if (IsCurrentUser(userToDelete))
+                {
+                    Logger.LogInformation("Администратор удалил свою учетную запись");
+                    // Перенаправляем на страницу входа
+                    Navigation.NavigateTo("/Account/Login", true);
+                    return;
+                }
+                
+                // Обновляем список пользователей
+                await LoadUsers();
+                ApplyFilters();
+                showDeleteModal = false;
+                userToDelete = null;
+                
+                Logger.LogInformation("Пользователь {Email} удален администратором", userToDelete?.Email);
+            }
+            else
+            {
+                deleteErrorMessage = "Ошибка при удалении пользователя: " + 
+                    string.Join(", ", result.Errors.Select(e => e.Description));
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Ошибка при удалении пользователя {UserId}", userToDelete?.Id);
+            deleteErrorMessage = "Произошла ошибка при удалении пользователя. Проверьте, нет ли связанных данных.";
+        }
+        finally
+        {
+            deleting = false;
+            StateHasChanged();
+        }
+    }
+
+    private bool IsCurrentUser(ApplicationUser user)
+    {
+        try
+        {
+            var authState = AuthenticationStateProvider.GetAuthenticationStateAsync().Result;
+            var currentUserId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            return user.Id == currentUserId;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private string GetRoleBadgeClass(string role)
+    {
+        return role switch
+        {
+            "Administrator" => "bg-danger",
+            "Manager" => "bg-warning text-dark",
+            "Customer" => "bg-success",
+            _ => "bg-secondary"
+        };
+    }
+
+    private bool HasFilters => !string.IsNullOrEmpty(searchEmail) || !string.IsNullOrEmpty(selectedRole);
+
+    public void Dispose()
+    {
+        debounceTimer?.Dispose();
+        filterCts?.Cancel();
+        filterCts?.Dispose();
+    }
+
+    // Модель для добавления пользователя
+    private class AddUserModel
+    {
+        public string Email { get; set; } = string.Empty;
+        public string LastName { get; set; } = string.Empty;
+        public string FirstName { get; set; } = string.Empty;
+        public string? MiddleName { get; set; }
+        public string? PhoneNumber { get; set; }
+        public string? Address { get; set; }
+        public string Password { get; set; } = string.Empty;
+        public string ConfirmPassword { get; set; } = string.Empty;
+    }
+
+    // Модель для редактирования пользователя
+    private class EditUserModel
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string LastName { get; set; } = string.Empty;
+        public string FirstName { get; set; } = string.Empty;
+        public string? MiddleName { get; set; }
+        public string? PhoneNumber { get; set; }
+        public string? Address { get; set; }
+    }
+}

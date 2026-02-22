@@ -1,0 +1,1001 @@
+﻿@page "/orders/create"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Identity
+@attribute [Authorize]
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>Создание заказа</PageTitle>
+
+<h1>Создание заказа</h1>
+<hr />
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger" id="error-message">
+        @errorMessage
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(successMessage))
+{
+    <div class="alert alert-success" id="success-message">
+        @successMessage
+    </div>
+}
+
+<div class="row">
+    <div class="col-md-8">
+        <!-- Форма создания заказа -->
+        <EditForm Model="orderData" OnValidSubmit="CreateOrder">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+            
+            <!-- Скрытые поля -->
+            <input type="hidden" @bind="orderData.UserId" />
+            <input type="hidden" @bind="orderData.Status" />
+            <input type="hidden" @bind="orderData.TotalAmount" />
+            
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5>Информация о заказе</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Пользователь:</label>
+                        <input type="text" class="form-control" value="@currentUserName" disabled />
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="shippingaddress" class="form-label">
+                            Адрес доставки <span class="text-danger">*</span>:
+                        </label>
+                        <div class="input-group">
+                            <InputText id="shippingaddress" @bind-Value="orderData.ShippingAddress" class="form-control" />
+                            <button type="button" class="btn btn-outline-secondary" @onclick="UseDefaultAddress">
+                                Взять из профиля
+                            </button>
+                        </div>
+                        <div class="form-text">
+                            <small>
+                                <span class="text-danger">*</span> Обязательное поле. 
+                                Ваш адрес в профиле: <strong>@userAddress</strong>
+                            </small>
+                        </div>
+                        <ValidationMessage For="@(() => orderData.ShippingAddress)" />
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="phonenumber" class="form-label">
+                            Номер телефона <span class="text-danger">*</span>:
+                        </label>
+                        <div class="input-group">
+                            <InputText id="phonenumber" @bind-Value="orderData.PhoneNumber" class="form-control" />
+                            <button type="button" class="btn btn-outline-secondary" @onclick="UseDefaultPhone">
+                                Взять из профиля
+                            </button>
+                        </div>
+                        <div class="form-text">
+                            <small>
+                                <span class="text-danger">*</span> Обязательное поле. 
+                                Ваш телефон в профиле: <strong>@userPhoneNumber</strong>
+                            </small>
+                        </div>
+                        <ValidationMessage For="@(() => orderData.PhoneNumber)" />
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Список товаров из корзины -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Товары в заказе</h5>
+                        <span class="badge bg-primary">
+                            @orderItems.Count() позиций
+                        </span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    @if (orderItems.Any())
+                    {
+                        @if (cartItemsFromCart.Any())
+                        {
+                            <div class="alert alert-info mb-3">
+                                <i class="bi bi-info-circle me-2"></i>
+                                Товары из вашей корзины автоматически добавлены в заказ. Вы можете изменить количество или удалить товары при необходимости.
+                            </div>
+                        }
+                        
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th width="60">Изображение</th>
+                                        <th>Товар</th>
+                                        <th>Артикул</th>
+                                        <th>Производитель</th>
+                                        <th>Количество</th>
+                                        <th>Цена</th>
+                                        <th>Сумма</th>
+                                        <th width="50"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in orderItems)
+                                    {
+                                        var part = availableParts.FirstOrDefault(p => p.PartId == item.PartId);
+                                        var fromCart = cartItemsFromCart.Any(c => c.PartId == item.PartId);
+                                        <tr>
+                                            <td>
+                                                @if (!string.IsNullOrEmpty(part?.ImagePath))
+                                                {
+                                                    <img src="@part.ImagePath" 
+                                                         class="img-thumbnail" 
+                                                         style="width: 75px; height: 75px; object-fit: contain;" 
+                                                         alt="@part?.Name" />
+                                                }
+                                                else
+                                                {
+                                                    <div class="text-center text-muted">
+                                                        <i class="bi bi-image"></i>
+                                                    </div>
+                                                }
+                                            </td>
+                                            <td>
+                                                <div>
+                                                    <strong>@part?.Name</strong>
+                                                    <div class="small text-muted">
+                                                        @part?.Category?.Name
+                                                        @if (fromCart)
+                                                        {
+                                                            <span class="badge bg-info ms-1">Из корзины</span>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-secondary">@part?.Article</span>
+                                            </td>
+                                            <td>@part?.Manufacturer?.Name</td>
+                                            <td>
+                                                <div class="input-group input-group-sm" style="width: 120px;">
+                                                    <input type="number" 
+                                                           min="1" 
+                                                           max="@part?.StockQuantity"
+                                                           value="@item.Quantity"
+                                                           class="form-control" 
+                                                           @onchange="(e) => UpdateOrderItemQuantity(item, e)" />
+                                                    <span class="input-group-text">шт.</span>
+                                                </div>
+                                                @if (part != null && item.Quantity > part.StockQuantity)
+                                                {
+                                                    <small class="text-danger">
+                                                        Доступно только @part.StockQuantity шт.
+                                                    </small>
+                                                }
+                                            </td>
+                                            <td>@item.UnitPrice.ToString("N2") ₽</td>
+                                            <td><strong>@((item.UnitPrice * item.Quantity).ToString("N2")) ₽</strong></td>
+                                            <td>
+                                                <button type="button" @onclick="() => RemoveOrderItem(item)"
+                                                        class="btn btn-sm btn-danger">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <td colspan="6" class="text-end"><strong>Итого:</strong></td>
+                                        <td><strong class="text-primary fs-5">@CalculateTotal().ToString("N2") ₽</strong></td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                        
+                        <!-- Добавление дополнительных товаров -->
+                        <div class="mt-4">
+                            <h6 class="mb-3">Добавить дополнительные товары</h6>
+                            <div class="row mb-3">
+                                <div class="col-md-12">
+                                    <div class="input-group mb-3">
+                                        <span class="input-group-text">
+                                            <i class="bi bi-search"></i>
+                                        </span>
+                                        <input type="text" class="form-control" 
+                                               placeholder="Поиск по названию или артикулу..." 
+                                               @bind="searchText" 
+                                               @bind:event="oninput" />
+                                        <button class="btn btn-outline-secondary" type="button" @onclick="ClearFilters">
+                                            Сбросить
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Категория:</label>
+                                    <select class="form-control" @bind="selectedCategoryId">
+                                        <option value="0">Все категории</option>
+                                        @foreach (var category in categories)
+                                        {
+                                            <option value="@category.CategoryId">@category.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Производитель:</label>
+                                    <select class="form-control" @bind="selectedManufacturerId">
+                                        <option value="0">Все производители</option>
+                                        @foreach (var manufacturer in manufacturers)
+                                        {
+                                            <option value="@manufacturer.ManufacturerId">@manufacturer.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Выберите товар для добавления:</label>
+                                <select value="@selectedPartId" @onchange="OnPartSelected" class="form-control">
+                                    <option value="0">-- Выберите товар --</option>
+                                    @foreach (var part in FilteredParts().Take(20))
+                                    {
+                                        var availableQuantity = GetAvailableQuantity(part.PartId);
+                                        <option value="@part.PartId" disabled="@(availableQuantity <= 0)">
+                                            @part.Name (Арт: @part.Article, Произв: @(part.Manufacturer?.Name ?? "Не указан"), Цена: @part.Price.ToString("N2") ₽, Остаток: @availableQuantity шт.)
+                                        </option>
+                                    }
+                                    @if (!FilteredParts().Any())
+                                    {
+                                        <option disabled>Товары не найдены</option>
+                                    }
+                                </select>
+                                <div class="form-text">
+                                    Найдено товаров: @FilteredParts().Count() | 
+                                    Показано: @(Math.Min(FilteredParts().Count(), 20))
+                                    @if (FilteredParts().Count() > 20)
+                                    {
+                                        <span> (используйте поиск для уточнения)</span>
+                                    }
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Количество:</label>
+                                <div class="input-group">
+                                    <input type="number" min="0" max="@maxAvailableQuantity" 
+                                           value="@quantityToAdd"
+                                           @onchange="(e) => OnQuantityChanged(e)" 
+                                           class="form-control" />
+                                    <span class="input-group-text">
+                                        Макс: @maxAvailableQuantity
+                                    </span>
+                                </div>
+                                <div class="form-text">
+                                    <small>
+                                        Введите количество (0 для отмены выбора)
+                                        @if (quantityToAdd > maxAvailableQuantity)
+                                        {
+                                            <span class="text-danger"> | Нельзя добавить больше, чем есть на складе</span>
+                                        }
+                                    </small>
+                                </div>
+                            </div>
+                            
+                            <button type="button" @onclick="AddPartToOrder" 
+                                    class="btn btn-primary"
+                                    disabled="@(selectedPartId == 0 || quantityToAdd <= 0 || quantityToAdd > maxAvailableQuantity)">
+                                <i class="bi bi-plus-circle me-1"></i>Добавить товар
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center py-4">
+                            <i class="bi bi-cart text-muted" style="font-size: 3rem;"></i>
+                            <p class="text-muted mt-2">Ваша корзина пуста</p>
+                            <p class="small text-muted">Добавьте товары в корзину или выберите товары из списка ниже</p>
+                            
+                            <!-- Добавление товаров при пустой корзине -->
+                            <div class="mt-4">
+                                <h6 class="mb-3">Добавить товары в заказ</h6>
+                                <div class="row mb-3">
+                                    <div class="col-md-12">
+                                        <div class="input-group mb-3">
+                                            <span class="input-group-text">
+                                                <i class="bi bi-search"></i>
+                                            </span>
+                                            <input type="text" class="form-control" 
+                                                   placeholder="Поиск по названию или артикулу..." 
+                                                   @bind="searchText" 
+                                                   @bind:event="oninput" />
+                                            <button class="btn btn-outline-secondary" type="button" @onclick="ClearFilters">
+                                                Сбросить
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Категория:</label>
+                                        <select class="form-control" @bind="selectedCategoryId">
+                                            <option value="0">Все категории</option>
+                                            @foreach (var category in categories)
+                                            {
+                                                <option value="@category.CategoryId">@category.Name</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Производитель:</label>
+                                        <select class="form-control" @bind="selectedManufacturerId">
+                                            <option value="0">Все производители</option>
+                                            @foreach (var manufacturer in manufacturers)
+                                            {
+                                                <option value="@manufacturer.ManufacturerId">@manufacturer.Name</option>
+                                            }
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label">Выберите товар:</label>
+                                    <select value="@selectedPartId" @onchange="OnPartSelected" class="form-control">
+                                        <option value="0">-- Выберите товар --</option>
+                                        @foreach (var part in FilteredParts().Take(20))
+                                        {
+                                            var availableQuantity = GetAvailableQuantity(part.PartId);
+                                            <option value="@part.PartId" disabled="@(availableQuantity <= 0)">
+                                                @part.Name (Арт: @part.Article, Произв: @(part.Manufacturer?.Name ?? "Не указан"), Цена: @part.Price.ToString("N2") ₽, Остаток: @availableQuantity шт.)
+                                            </option>
+                                        }
+                                        @if (!FilteredParts().Any())
+                                        {
+                                            <option disabled>Товары не найдены</option>
+                                        }
+                                    </select>
+                                    <div class="form-text">
+                                        Найдено товаров: @FilteredParts().Count() | 
+                                        Показано: @(Math.Min(FilteredParts().Count(), 20))
+                                        @if (FilteredParts().Count() > 20)
+                                        {
+                                            <span> (используйте поиск для уточнения)</span>
+                                        }
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label">Количество:</label>
+                                    <div class="input-group">
+                                        <input type="number" min="0" max="@maxAvailableQuantity" 
+                                               value="@quantityToAdd"
+                                               @onchange="(e) => OnQuantityChanged(e)" 
+                                               class="form-control" />
+                                        <span class="input-group-text">
+                                            Макс: @maxAvailableQuantity
+                                        </span>
+                                    </div>
+                                    <div class="form-text">
+                                        <small>
+                                            Введите количество (0 для отмены выбора)
+                                            @if (quantityToAdd > maxAvailableQuantity)
+                                            {
+                                                <span class="text-danger"> | Нельзя добавить больше, чем есть на складе</span>
+                                            }
+                                        </small>
+                                    </div>
+                                </div>
+                                
+                                <button type="button" @onclick="AddPartToOrder" 
+                                        class="btn btn-primary"
+                                        disabled="@(selectedPartId == 0 || quantityToAdd <= 0 || quantityToAdd > maxAvailableQuantity)">
+                                    <i class="bi bi-plus-circle me-1"></i>Добавить товар
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+            
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary" disabled="@(!orderItems.Any())">
+                    <i class="bi bi-check-circle me-1"></i>Создать заказ
+                </button>
+                <button type="button" @onclick="Cancel" class="btn btn-secondary">
+                    <i class="bi bi-x-circle me-1"></i>Отмена
+                </button>
+            </div>
+        </EditForm>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card shadow sticky-top" style="top: 20px;">
+            <div class="card-header bg-light">
+                <h5 class="mb-0">Информация о заказе</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <h6>Статус:</h6>
+                    <span class="badge bg-info">В обработке</span>
+                </div>
+                
+                <div class="mb-3">
+                    <h6>Дата заказа:</h6>
+                    <p>@DateTime.Now.ToString("dd.MM.yyyy HH:mm")</p>
+                </div>
+                
+                <div class="mb-3">
+                    <h6>Количество товаров:</h6>
+                    <p>@orderItems.Count() позиций</p>
+                </div>
+                
+                <div class="mb-3">
+                    <h6>Общая сумма:</h6>
+                    <p class="fs-4 text-primary fw-bold">@CalculateTotal().ToString("N2") ₽</p>
+                </div>
+                
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <small>
+                        После оформления заказа из корзины будут удалены только те товары, которые были добавлены в заказ. 
+                        При возникновении вопросов с вами свяжется менеджер по указанному телефону.
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    private OrderDto orderData { get; set; } = new();
+    
+    private List<OrderItem> orderItems = new();
+    private List<Part> availableParts = new();
+    private List<Category> categories = new();
+    private List<Manufacturer> manufacturers = new();
+    private List<CartItem> cartItemsFromCart = new();
+    
+    // Фильтры
+    private string searchText = string.Empty;
+    private int selectedCategoryId = 0;
+    private int selectedManufacturerId = 0;
+    
+    private int selectedPartId = 0;
+    private int quantityToAdd = 0;
+    private int maxAvailableQuantity = 0;
+    private string? currentUserName;
+    private string? currentUserId;
+    private string? errorMessage;
+    private string? successMessage;
+    
+    // Данные пользователя из профиля
+    private string? userAddress;
+    private string? userPhoneNumber;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // Получаем текущего пользователя
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                currentUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                currentUserName = user.Identity.Name;
+                orderData.UserId = currentUserId;
+                
+                // Загружаем данные пользователя из базы
+                await LoadUserData();
+            }
+            else
+            {
+                NavigationManager.NavigateTo("/Identity/Account/Login", true);
+            }
+            
+            // Устанавливаем статус по умолчанию
+            orderData.Status = "В обработке";
+            
+            // Загружаем данные
+            await LoadData();
+            
+            // Загружаем товары из корзины
+            await LoadCartItems();
+            
+            // Обновляем общую сумму
+            orderData.TotalAmount = CalculateTotal();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при инициализации: {ex.Message}";
+        }
+    }
+
+    private async Task LoadUserData()
+    {
+        try
+        {
+            var user = await UserManager.FindByIdAsync(currentUserId!);
+            if (user != null)
+            {
+                userAddress = user.Address;
+                userPhoneNumber = user.PhoneNumber;
+                orderData.ShippingAddress = userAddress;
+                orderData.PhoneNumber = userPhoneNumber;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при загрузке данных пользователя: {ex.Message}";
+        }
+    }
+
+    private void UseDefaultAddress()
+    {
+        if (!string.IsNullOrEmpty(userAddress))
+        {
+            orderData.ShippingAddress = userAddress;
+        }
+    }
+
+    private void UseDefaultPhone()
+    {
+        if (!string.IsNullOrEmpty(userPhoneNumber))
+        {
+            orderData.PhoneNumber = userPhoneNumber;
+        }
+    }
+
+    private async Task LoadData()
+    {
+        using var context = DbFactory.CreateDbContext();
+        
+        categories = await context.Categories
+            .OrderBy(c => c.Name)
+            .ToListAsync();
+        
+        manufacturers = await context.Manufacturers
+            .Where(m => m.IsActive)
+            .OrderBy(m => m.Name)
+            .ToListAsync();
+        
+        availableParts = await context.Parts
+            .Include(p => p.Manufacturer)
+            .Include(p => p.Category)
+            .Where(p => p.StockQuantity > 0)
+            .OrderBy(p => p.Name)
+            .ToListAsync();
+    }
+
+    private async Task LoadCartItems()
+    {
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            // Загружаем товары из корзины пользователя
+            cartItemsFromCart = await context.CartItems
+                .Where(c => c.UserId == currentUserId)
+                .Include(c => c.Part)
+                .ToListAsync();
+            
+            if (cartItemsFromCart.Any())
+            {
+                // Преобразуем товары из корзины в OrderItem
+                foreach (var cartItem in cartItemsFromCart)
+                {
+                    var part = availableParts.FirstOrDefault(p => p.PartId == cartItem.PartId);
+                    
+                    if (part != null)
+                    {
+                        // Проверяем, есть ли уже этот товар в заказе
+                        var existingItem = orderItems.FirstOrDefault(oi => oi.PartId == cartItem.PartId);
+                        
+                        if (existingItem != null)
+                        {
+                            // Увеличиваем количество существующего товара
+                            var newQuantity = existingItem.Quantity + cartItem.Quantity;
+                            if (newQuantity <= part.StockQuantity)
+                            {
+                                existingItem.Quantity = newQuantity;
+                            }
+                            else
+                            {
+                                existingItem.Quantity = part.StockQuantity;
+                                errorMessage = $"Товар '{part.Name}' добавлен с максимально доступным количеством: {part.StockQuantity} шт.";
+                            }
+                        }
+                        else
+                        {
+                            // Добавляем новый товар
+                            var orderItem = new OrderItem
+                            {
+                                PartId = cartItem.PartId,
+                                Quantity = Math.Min(cartItem.Quantity, part.StockQuantity),
+                                UnitPrice = cartItem.Price
+                            };
+                            
+                            orderItems.Add(orderItem);
+                            
+                            if (cartItem.Quantity > part.StockQuantity)
+                            {
+                                errorMessage = $"Товар '{part.Name}' добавлен с максимально доступным количеством: {part.StockQuantity} шт.";
+                            }
+                        }
+                    }
+                }
+                
+                successMessage = $"Из корзины добавлено {cartItemsFromCart.Count} товар(ов)";
+                StateHasChanged();
+                
+                // Убираем сообщение через 3 секунды
+                await Task.Delay(3000);
+                successMessage = null;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при загрузке товаров из корзины: {ex.Message}";
+        }
+    }
+
+    private IEnumerable<Part> FilteredParts()
+    {
+        var filtered = availableParts.AsEnumerable();
+        
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            var searchLower = searchText.ToLower();
+            filtered = filtered.Where(p => 
+                (p.Name?.ToLower().Contains(searchLower) == true) ||
+                (p.Article?.ToLower().Contains(searchLower) == true));
+        }
+        
+        if (selectedCategoryId > 0)
+        {
+            filtered = filtered.Where(p => p.CategoryId == selectedCategoryId);
+        }
+        
+        if (selectedManufacturerId > 0)
+        {
+            filtered = filtered.Where(p => p.ManufacturerId == selectedManufacturerId);
+        }
+        
+        return filtered.ToList();
+    }
+
+    private void ClearFilters()
+    {
+        searchText = string.Empty;
+        selectedCategoryId = 0;
+        selectedManufacturerId = 0;
+        StateHasChanged();
+    }
+
+    private void OnPartSelected(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var partId))
+        {
+            selectedPartId = partId;
+            UpdateMaxAvailableQuantity();
+            
+            // Устанавливаем количество в 1 при выборе товара, если есть в наличии
+            if (selectedPartId > 0 && maxAvailableQuantity > 0)
+            {
+                quantityToAdd = 1;
+            }
+            else
+            {
+                quantityToAdd = 0;
+            }
+        }
+    }
+
+    private void OnQuantityChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var quantity))
+        {
+            quantityToAdd = quantity;
+            
+            // Проверяем, чтобы количество не превышало максимум
+            if (quantityToAdd > maxAvailableQuantity)
+            {
+                quantityToAdd = maxAvailableQuantity;
+            }
+            
+            // Не позволяем установить отрицательное значение
+            if (quantityToAdd < 0)
+            {
+                quantityToAdd = 0;
+            }
+        }
+    }
+
+    private int GetAvailableQuantity(int partId)
+    {
+        var part = availableParts.FirstOrDefault(p => p.PartId == partId);
+        if (part == null) return 0;
+        
+        // Количество уже добавленное в заказ
+        var alreadyInOrder = orderItems
+            .Where(i => i.PartId == partId)
+            .Sum(i => i.Quantity);
+            
+        return Math.Max(0, part.StockQuantity - alreadyInOrder);
+    }
+
+    private void UpdateMaxAvailableQuantity()
+    {
+        if (selectedPartId > 0)
+        {
+            maxAvailableQuantity = GetAvailableQuantity(selectedPartId);
+        }
+        else
+        {
+            maxAvailableQuantity = 0;
+        }
+        StateHasChanged();
+    }
+
+    private void AddPartToOrder()
+    {
+        if (selectedPartId == 0 || quantityToAdd <= 0) return;
+        
+        var part = availableParts.FirstOrDefault(p => p.PartId == selectedPartId);
+        if (part == null) return;
+        
+        // Проверяем, можно ли добавить указанное количество
+        var availableQuantity = GetAvailableQuantity(selectedPartId);
+        if (quantityToAdd > availableQuantity)
+        {
+            errorMessage = $"Нельзя добавить {quantityToAdd} единиц товара '{part.Name}'. Доступно только {availableQuantity}.";
+            StateHasChanged();
+            return;
+        }
+        
+        // Проверяем, есть ли уже этот товар в заказе
+        var existing = orderItems.FirstOrDefault(i => i.PartId == selectedPartId);
+        
+        if (existing != null)
+        {
+            // Увеличиваем количество
+            existing.Quantity += quantityToAdd;
+        }
+        else
+        {
+            // Добавляем новый товар
+            var orderItem = new OrderItem
+            {
+                PartId = selectedPartId,
+                Quantity = quantityToAdd,
+                UnitPrice = part.Price
+            };
+            
+            orderItems.Add(orderItem);
+        }
+        
+        // Обновляем общую сумму
+        orderData.TotalAmount = CalculateTotal();
+        
+        // Сбрасываем выбор
+        selectedPartId = 0;
+        quantityToAdd = 0;
+        maxAvailableQuantity = 0;
+        errorMessage = null;
+        
+        StateHasChanged();
+    }
+
+    private void UpdateOrderItemQuantity(OrderItem item, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var quantity))
+        {
+            if (quantity <= 0)
+            {
+                RemoveOrderItem(item);
+                return;
+            }
+            
+            var part = availableParts.FirstOrDefault(p => p.PartId == item.PartId);
+            if (part == null) return;
+            
+            var availableWithExisting = part.StockQuantity + (orderItems.FirstOrDefault(i => i.PartId == item.PartId)?.Quantity ?? 0) - item.Quantity;
+            
+            if (quantity > part.StockQuantity)
+            {
+                errorMessage = $"Нельзя установить количество {quantity} для товара '{part.Name}'. Максимально доступно {part.StockQuantity}.";
+                StateHasChanged();
+                return;
+            }
+            
+            item.Quantity = quantity;
+            orderData.TotalAmount = CalculateTotal();
+            errorMessage = null;
+            StateHasChanged();
+        }
+    }
+
+    private void RemoveOrderItem(OrderItem item)
+    {
+        orderItems.Remove(item);
+        orderData.TotalAmount = CalculateTotal();
+        errorMessage = null;
+        StateHasChanged();
+    }
+
+    private decimal CalculateTotal()
+    {
+        return orderItems.Sum(i => i.UnitPrice * i.Quantity);
+    }
+
+    private async Task CreateOrder()
+    {
+        errorMessage = null;
+        successMessage = null;
+        
+        // Проверяем, что есть товары в заказе
+        if (!orderItems.Any())
+        {
+            errorMessage = "Нельзя создать заказ без товаров. Добавьте хотя бы один товар.";
+            StateHasChanged();
+            await ScrollToTop();
+            return;
+        }
+
+        // Проверяем обязательные поля
+        if (string.IsNullOrWhiteSpace(orderData.ShippingAddress))
+        {
+            errorMessage = "Укажите адрес доставки (обязательное поле)";
+            StateHasChanged();
+            await ScrollToTop();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(orderData.PhoneNumber))
+        {
+            errorMessage = "Укажите номер телефона (обязательное поле)";
+            StateHasChanged();
+            await ScrollToTop();
+            return;
+        }
+
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            // Двойная проверка доступности товаров
+            foreach (var item in orderItems)
+            {
+                var part = await context.Parts
+                    .Include(p => p.Manufacturer)
+                    .Include(p => p.Category)
+                    .FirstOrDefaultAsync(p => p.PartId == item.PartId);
+                    
+                if (part == null)
+                {
+                    errorMessage = $"Товар с ID {item.PartId} не найден";
+                    StateHasChanged();
+                    await ScrollToTop();
+                    return;
+                }
+                
+                if (part.StockQuantity < item.Quantity)
+                {
+                    errorMessage = $"Недостаточно товара '{part.Name}' на складе. Доступно: {part.StockQuantity}, запрошено: {item.Quantity}";
+                    StateHasChanged();
+                    await ScrollToTop();
+                    return;
+                }
+            }
+            
+            // Создаем заказ
+            var order = new Order
+            {
+                UserId = orderData.UserId,
+                OrderDate = DateTime.Now,
+                Status = orderData.Status,
+                ShippingAddress = orderData.ShippingAddress,
+                PhoneNumber = orderData.PhoneNumber,
+                TotalAmount = CalculateTotal()
+            };
+            
+            context.Orders.Add(order);
+            await context.SaveChangesAsync();
+            
+            // Добавляем товары в заказ
+            foreach (var item in orderItems)
+            {
+                var part = await context.Parts.FindAsync(item.PartId);
+                
+                var orderItem = new OrderItem
+                {
+                    OrderId = order.OrderId,
+                    PartId = item.PartId,
+                    Quantity = item.Quantity,
+                    UnitPrice = item.UnitPrice
+                };
+                
+                // Уменьшаем количество на складе
+                part!.StockQuantity -= item.Quantity;
+                
+                context.OrderItems.Add(orderItem);
+            }
+            
+            await context.SaveChangesAsync();
+            
+            // Удаляем из корзины только те товары, которые были добавлены в заказ
+            await RemoveUsedCartItems(orderItems);
+            
+            // Перенаправляем на страницу деталей заказа с параметром query string
+            NavigationManager.NavigateTo($"/orders/details?orderid={order.OrderId}");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при создании заказа: {ex.Message}";
+            StateHasChanged();
+            await ScrollToTop();
+        }
+    }
+
+    private async Task RemoveUsedCartItems(List<OrderItem> usedOrderItems)
+    {
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            // Получаем все товары из корзины пользователя
+            var userCartItems = await context.CartItems
+                .Where(c => c.UserId == currentUserId)
+                .ToListAsync();
+            
+            // Находим товары, которые были использованы в заказе
+            foreach (var orderItem in usedOrderItems)
+            {
+                // Ищем соответствующий товар в корзине
+                var cartItem = userCartItems.FirstOrDefault(c => c.PartId == orderItem.PartId);
+                if (cartItem != null)
+                {
+                    // Если количество в заказе меньше или равно количеству в корзине
+                    if (orderItem.Quantity >= cartItem.Quantity)
+                    {
+                        // Удаляем товар из корзины полностью
+                        context.CartItems.Remove(cartItem);
+                    }
+                    else
+                    {
+                        // Уменьшаем количество в корзине
+                        cartItem.Quantity -= orderItem.Quantity;
+                        context.CartItems.Update(cartItem);
+                    }
+                }
+            }
+            
+            await context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при удалении использованных товаров из корзины: {ex.Message}");
+        }
+    }
+
+    private async Task ScrollToTop()
+    {
+        await JS.InvokeVoidAsync("window.scrollTo", new { top = 0, behavior = "smooth" });
+    }
+
+    private void Cancel()
+    {
+        NavigationManager.NavigateTo("/orders");
+    }
+}

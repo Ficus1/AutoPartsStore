@@ -1,0 +1,42 @@
+﻿@page "/Account/Manage/PersonalData"
+
+@using Microsoft.AspNetCore.Identity
+@using AutoPartsStore.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>Персональные данные</PageTitle>
+
+<StatusMessage />
+<h3>Персональные данные</h3>
+
+<div class="row">
+    <div class="col-md-6">
+        <p>Ваша учетная запись содержит персональные данные, которые вы нам предоставили. Эта страница позволяет вам загрузить или удалить эти данные.</p>
+        <p>
+            <strong>Удаление этих данных навсегда удалит вашу учетную запись, и это невозможно восстановить.</strong>
+        </p>
+        <form action="Account/Manage/DownloadPersonalData" method="post">
+            <AntiforgeryToken />
+            <button class="btn btn-primary" type="submit">Загрузить</button>
+        </form>
+        <p>
+            <a href="Account/Manage/DeletePersonalData" class="btn btn-danger">Удалить</a>
+        </p>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user  = await UserManager.GetUserAsync(HttpContext.User);
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+        }
+    }
+}

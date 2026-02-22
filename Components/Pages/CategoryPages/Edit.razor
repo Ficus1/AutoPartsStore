@@ -1,0 +1,115 @@
+﻿@page "/categories/edit"
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Administrator,Manager")]
+
+<PageTitle>Редактирование категории</PageTitle>
+
+<div class="container mt-4">
+    <h2>Редактирование категории</h2>
+    
+    @if (Category is null)
+    {
+        <div class="text-center mt-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-2">Загрузка данных...</p>
+        </div>
+    }
+    else
+    {
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">Редактирование категории</h5>
+            </div>
+            <div class="card-body">
+                <EditForm method="post" Model="Category" OnValidSubmit="UpdateCategory" FormName="edit" Enhance>
+                    <DataAnnotationsValidator />
+                    <ValidationSummary role="alert" class="text-danger" />
+                    <input type="hidden" name="Category.CategoryId" value="@Category.CategoryId" />
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <span class="text-danger">*</span>
+                                <label for="name" class="form-label">Название:</label>
+                                <InputText id="name" @bind-Value="Category.Name" class="form-control" aria-required="true" />
+                                <ValidationMessage For="() => Category.Name" class="text-danger" />
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="description" class="form-label">Описание:</label>
+                                <InputText id="description" @bind-Value="Category.Description" class="form-control" />
+                                <ValidationMessage For="() => Category.Description" class="text-danger" />
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary">Сохранить</button>
+                            <a href="/categories" class="btn btn-outline-secondary">Отмена</a>
+                        </div>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    private int CategoryId { get; set; }
+
+    [SupplyParameterFromForm]
+    private Category? Category { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        using var context = DbFactory.CreateDbContext();
+        Category ??= await context.Categories.FirstOrDefaultAsync(m => m.CategoryId == CategoryId);
+
+        if (Category is null)
+        {
+            NavigationManager.NavigateTo("/categories");
+        }
+    }
+
+    private async Task UpdateCategory()
+    {
+        using var context = DbFactory.CreateDbContext();
+        context.Attach(Category!).State = EntityState.Modified;
+
+        try
+        {
+            await context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            if (!CategoryExists(Category!.CategoryId))
+            {
+                NavigationManager.NavigateTo("/categories");
+                return;
+            }
+            else
+            {
+                throw;
+            }
+        }
+
+        NavigationManager.NavigateTo("/categories");
+    }
+
+    private bool CategoryExists(int categoryid)
+    {
+        using var context = DbFactory.CreateDbContext();
+        return context.Categories.Any(e => e.CategoryId == categoryid);
+    }
+}

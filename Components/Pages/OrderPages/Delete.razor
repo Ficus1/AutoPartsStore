@@ -1,0 +1,270 @@
+﻿@page "/orders/delete"
+
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+@rendermode InteractiveServer
+
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Administrator,Manager")]
+
+<PageTitle>Удаление заказа</PageTitle>
+
+<h1>Удаление заказа</h1>
+
+<div class="alert alert-danger">
+    <h4>Вы уверены, что хотите удалить этот заказ?</h4>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h5>Информация о заказе</h5>
+    </div>
+    <div class="card-body">
+        @if (order is null)
+        {
+            <div class="text-center">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Загрузка...</span>
+                </div>
+                <p class="mt-2"><em>Загрузка данных заказа...</em></p>
+            </div>
+        }
+        else
+        {
+            <div class="row">
+                <div class="col-md-6">
+                    <dl class="row">
+                        <dt class="col-sm-4">ID заказа:</dt>
+                        <dd class="col-sm-8">@order.OrderId</dd>
+
+                        <dt class="col-sm-4">Дата заказа:</dt>
+                        <dd class="col-sm-8">@order.OrderDate.ToString("dd.MM.yyyy HH:mm")</dd>
+
+                        <dt class="col-sm-4">Статус:</dt>
+                        <dd class="col-sm-8">
+                            <span class="badge @GetStatusBadgeClass(order.Status)">
+                                @order.Status
+                            </span>
+                        </dd>
+
+                        <dt class="col-sm-4">Пользователь:</dt>
+                        <dd class="col-sm-8">@(order.User?.Email ?? "Неизвестно")</dd>
+                    </dl>
+                </div>
+                <div class="col-md-6">
+                    <dl class="row">
+                        <dt class="col-sm-4">Общая сумма:</dt>
+                        <dd class="col-sm-8">@order.TotalAmount.ToString("C2")</dd>
+
+                        <dt class="col-sm-4">Адрес доставки:</dt>
+                        <dd class="col-sm-8">@order.ShippingAddress</dd>
+
+                        <dt class="col-sm-4">Телефон:</dt>
+                        <dd class="col-sm-8">@order.PhoneNumber</dd>
+
+                        <dt class="col-sm-4">Кол-во товаров:</dt>
+                        <dd class="col-sm-8">@orderItems.Count</dd>
+                    </dl>
+                </div>
+            </div>
+
+            <!-- Таблица товаров в заказе -->
+            @if (orderItems.Any())
+            {
+                <div class="mt-4">
+                    <h6>Товары в заказе:</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width: 60px;">Изображение</th>
+                                    <th>Товар</th>
+                                    <th>Артикул</th>
+                                    <th>Количество</th>
+                                    <th>Цена</th>
+                                    <th>Сумма</th>
+                                    <th>Возврат на склад</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in orderItems)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div style="width: 75px; height: 75px;">
+                                                @if (!string.IsNullOrEmpty(item.Part?.ImagePath))
+                                                {
+                                                    <img src="@item.Part.ImagePath" 
+                                                         class="img-thumbnail" 
+                                                         style="width: 100%; height: 100%; object-fit: contain;" 
+                                                         alt="@item.Part.Name"
+                                                         onerror="this.onerror=null;this.src='/images/no-image.png';" />
+                                                }
+                                                else
+                                                {
+                                                    <div class="text-center text-muted d-flex align-items-center justify-content-center h-100 border rounded">
+                                                        <i class="bi bi-image"></i>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </td>
+                                        <td>@(item.Part?.Name ?? "Неизвестный товар")</td>
+                                        <td>@(item.Part?.Article ?? "")</td>
+                                        <td>@item.Quantity</td>
+                                        <td>@item.UnitPrice.ToString("C2")</td>
+                                        <td>@((item.UnitPrice * item.Quantity).ToString("C2"))</td>
+                                        <td>
+                                            @if (item.Part != null)
+                                            {
+                                                <div class="small">
+                                                    <div>Было: <strong>@item.Part.StockQuantity шт.</strong></div>
+                                                    <div class="text-success">
+                                                        → Станет: <strong>@(item.Part.StockQuantity + item.Quantity) шт.</strong>
+                                                    </div>
+                                                    <div class="text-success">
+                                                        <i class="bi bi-plus-circle"></i> +@item.Quantity шт.
+                                                    </div>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">Товар не найден</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                            @if (orderItems.Any(i => i.Part != null))
+                            {
+                                <tfoot>
+                                    <tr class="table-light">
+                                        <td colspan="6" class="text-end">
+                                            <strong>Всего будет возвращено:</strong>
+                                        </td>
+                                        <td class="text-success fw-bold">
+                                            +@(orderItems.Sum(i => i.Quantity)) шт.
+                                        </td>
+                                    </tr>
+                                </tfoot>
+                            }
+                        </table>
+                    </div>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="alert alert-warning mt-3">
+                    @errorMessage
+                </div>
+            }
+
+            <div class="mt-4">
+                <EditForm method="post" Model="order" OnValidSubmit="DeleteOrder">
+                    <button type="submit" class="btn btn-danger" disabled="@(order is null)">
+                        <i class="bi bi-trash"></i> Удалить заказ
+                    </button>
+                    <a href="/orders" class="btn btn-secondary ms-2">
+                        <i class="bi bi-arrow-left"></i> Вернуться к списку
+                    </a>
+                </EditForm>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private Order? order;
+    private List<OrderItem> orderItems = new();
+    private string? errorMessage;
+
+    [SupplyParameterFromQuery]
+    private int OrderId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            // Загружаем заказ с пользователем и товарами
+            order = await context.Orders
+                .Include(o => o.User)
+                .Include(o => o.OrderItems)
+                .ThenInclude(oi => oi.Part)
+                .FirstOrDefaultAsync(m => m.OrderId == OrderId);
+
+            if (order is null)
+            {
+                NavigationManager.NavigateTo("/orders");
+                return;
+            }
+
+            // Получаем товары в заказе
+            orderItems = order.OrderItems?.ToList() ?? new List<OrderItem>();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при загрузке данных: {ex.Message}";
+        }
+    }
+
+    private string GetStatusBadgeClass(string? status)
+    {
+        return status switch
+        {
+            "В обработке" => "bg-warning",
+            "Оплачен" => "bg-primary",
+            "Доставлен" => "bg-success",
+            "Отменен" => "badge bg-danger",
+            _ => "badge bg-secondary"
+        };
+    }
+
+    private async Task DeleteOrder()
+    {
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            // Загружаем заказ с товарами для удаления
+            var orderToDelete = await context.Orders
+                .Include(o => o.OrderItems)
+                .FirstOrDefaultAsync(o => o.OrderId == OrderId);
+
+            if (orderToDelete == null)
+            {
+                errorMessage = "Заказ не найден.";
+                return;
+            }
+
+            // Возвращаем товары на склад
+            foreach (var orderItem in orderToDelete.OrderItems ?? new List<OrderItem>())
+            {
+                var part = await context.Parts.FindAsync(orderItem.PartId);
+                if (part != null)
+                {
+                    part.StockQuantity += orderItem.Quantity;
+                }
+            }
+
+            // Удаляем связанные OrderItem
+            context.OrderItems.RemoveRange(orderToDelete.OrderItems ?? new List<OrderItem>());
+            
+            // Удаляем сам заказ
+            context.Orders.Remove(orderToDelete);
+            
+            // Сохраняем изменения
+            await context.SaveChangesAsync();
+            
+            // Перенаправляем на страницу заказов
+            NavigationManager.NavigateTo("/orders");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при удалении заказа: {ex.Message}";
+        }
+    }
+}

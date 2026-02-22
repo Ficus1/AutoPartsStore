@@ -1,0 +1,74 @@
+﻿@page "/manufacturers"
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.QuickGrid
+@using AutoPartsStore.Data
+@implements IAsyncDisposable
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@rendermode InteractiveServer
+
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Administrator,Manager")]
+
+<PageTitle>Производители</PageTitle>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="mb-4">Производители автозапчастей</h2>
+
+        <div class="mb-3">
+            <a href="manufacturers/create" class="btn btn-sm btn-primary"><i class="bi bi-plus-circle me-1"></i> Создать нового производителя</a>
+        </div>
+    </div>
+</div>
+
+@if (context.Manufacturers.Any())
+{
+    <QuickGrid Items="context.Manufacturers.AsQueryable()" Class="table table-striped table-sm">
+        <PropertyColumn Title="Название" Property="manufacturer => manufacturer.Name" />
+        <PropertyColumn Title="Страна" Property="manufacturer => manufacturer.Country" />
+        <PropertyColumn Title="Описание" Property="manufacturer => manufacturer.Description" />
+        
+        <TemplateColumn Title="Статус">
+            @if (context.IsActive)
+            {
+                <span class="badge bg-success">Активен</span>
+            }
+            else
+            {
+                <span class="badge bg-danger">Неактивен</span>
+            }
+        </TemplateColumn>
+        
+        <TemplateColumn Title="Действия">
+            <div class="d-flex gap-2">
+                <a href="@($"manufacturers/details?manufacturerid={context.ManufacturerId}")" 
+                   class="btn btn-sm btn-outline-secondary"><i class="bi bi-eye me-1"></i>Подробнее</a>
+                <a href="@($"manufacturers/edit?manufacturerid={context.ManufacturerId}")" 
+                   class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil me-1"></i>Изменить</a>
+                <a href="@($"manufacturers/delete?manufacturerid={context.ManufacturerId}")" 
+                   class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Удалить</a>
+            </div>
+        </TemplateColumn>
+    </QuickGrid>
+    
+    <div class="mt-3 text-muted small">
+        Всего производителей: @context.Manufacturers.Count()
+    </div>
+}
+else
+{
+    <div class="alert alert-info">
+        <p class="mb-0">Нет доступных производителей. Добавьте первого производителя.</p>
+    </div>
+}
+
+@code {
+    private AutoPartsContext context = default!;
+
+    protected override void OnInitialized()
+    {
+        context = DbFactory.CreateDbContext();
+    }
+
+    public async ValueTask DisposeAsync() => await context.DisposeAsync();
+}

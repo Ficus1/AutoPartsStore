@@ -1,0 +1,310 @@
+﻿@page "/parts/delete"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using AutoPartsStore.Data
+@inject IDbContextFactory<AutoPartsStore.Data.AutoPartsContext> DbFactory
+@inject NavigationManager NavigationManager
+@inject IWebHostEnvironment Environment
+
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Administrator,Manager")]
+
+<PageTitle>Удаление запчасти</PageTitle>
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">Удаление запчасти</h2>
+        <a href="/parts" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>К списку
+        </a>
+    </div>
+    
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger mt-3">
+            <strong>Ошибка:</strong> @errorMessage
+            <div class="mt-2">
+                <a href="/parts" class="btn btn-sm btn-outline-primary">Назад к списку</a>
+            </div>
+        </div>
+    }
+    else if (part is null || manufacturer is null || category is null)
+    {
+        <div class="text-center mt-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-2">Загрузка данных...</p>
+        </div>
+    }
+    else
+    {
+        <div class="card mt-3">
+            <div class="card-header bg-light">
+                <h5 class="mb-0">Подтвердите удаление</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- Изображение -->
+                    <div class="col-md-4 mb-3">
+                        <div class="text-center">
+                            @if (!string.IsNullOrEmpty(part.ImagePath))
+                            {
+                                <img src="@part.ImagePath" 
+                                     class="img-fluid rounded mb-2" 
+                                     style="max-height: 200px; object-fit: contain;" 
+                                     alt="@part.Name"
+                                     onerror="this.onerror=null;this.src='/images/no-image.png';" />
+                                <div class="text-muted small">
+                                    <i class="bi bi-info-circle me-1"></i>Изображение также будет удалено
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="text-muted py-4">
+                                    <i class="bi bi-image" style="font-size: 2rem;"></i>
+                                    <p class="mt-2">Нет изображения</p>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Информация -->
+                    <div class="col-md-8">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label text-muted">Название:</label>
+                                    <p class="fw-bold">@part.Name</p>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label text-muted">Артикул:</label>
+                                    <p>@part.Article</p>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label text-muted">Цена:</label>
+                                    <p class="fw-bold">@part.Price.ToString("N2") ₽</p>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label text-muted">На складе:</label>
+                                    <p>
+                                        <span class="badge @GetStockBadgeClass(part.StockQuantity)">
+                                            @part.StockQuantity шт.
+                                        </span>
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label text-muted">Производитель:</label>
+                            <p>@manufacturer.Name @(!string.IsNullOrEmpty(manufacturer.Country) ? $"({manufacturer.Country})" : "")</p>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label text-muted">Категория:</label>
+                            <p>@category.Name</p>
+                        </div>
+
+                        <!-- Предупреждение -->
+                        @if (hasOrderItems)
+                        {
+                            <div class="alert alert-warning">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                                    <div>
+                                        <strong>Нельзя удалить:</strong> Эта запчасть присутствует в заказах (@orderItemsCount шт.).
+                                        Сначала удалите её из всех заказов.
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-3">
+                                <a href="/parts" class="btn btn-primary">Вернуться к списку</a>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="alert alert-danger">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                                    <div>
+                                        <strong>Внимание!</strong> Это действие нельзя отменить. Все данные будут удалены.
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="d-flex gap-2 mt-4">
+                                <button class="btn btn-danger" @onclick="DeletePart" disabled="@isDeleting">
+                                    @if (isDeleting)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                        <span>Удаление...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-trash me-1"></i>
+                                        <span>Удалить запчасть</span>
+                                    }
+                                </button>
+                                <a href="/parts" class="btn btn-outline-secondary">Отмена</a>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Part? part;
+    private Manufacturer? manufacturer;
+    private Category? category;
+    private string? errorMessage;
+    private bool hasOrderItems = false;
+    private int orderItemsCount = 0;
+    private bool isDeleting = false;
+    private string? imagePathForDeletion; // Сохраняем путь к изображению для удаления
+
+    [SupplyParameterFromQuery]
+    private int PartId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (PartId <= 0)
+        {
+            errorMessage = "Не указан ID запчасти";
+            return;
+        }
+
+        await LoadPartData();
+    }
+
+    private async Task LoadPartData()
+    {
+        try
+        {
+            using var context = DbFactory.CreateDbContext();
+            
+            part = await context.Parts
+                .Include(p => p.Manufacturer)
+                .Include(p => p.Category)
+                .FirstOrDefaultAsync(m => m.PartId == PartId);
+
+            if (part is null)
+            {
+                errorMessage = "Запчасть не найдена";
+                return;
+            }
+
+            manufacturer = part.Manufacturer;
+            category = part.Category;
+            
+            // Если не загрузились через Include, загружаем отдельно
+            if (manufacturer == null && part.ManufacturerId > 0)
+            {
+                manufacturer = await context.Manufacturers
+                    .FirstOrDefaultAsync(m => m.ManufacturerId == part.ManufacturerId);
+            }
+            
+            if (category == null && part.CategoryId > 0)
+            {
+                category = await context.Categories
+                    .FirstOrDefaultAsync(c => c.CategoryId == part.CategoryId);
+            }
+            
+            // Сохраняем путь к изображению для последующего удаления
+            if (!string.IsNullOrEmpty(part.ImagePath))
+            {
+                imagePathForDeletion = part.ImagePath;
+            }
+            
+            // Проверяем, есть ли связанные заказы
+            orderItemsCount = await context.OrderItems
+                .CountAsync(oi => oi.PartId == part.PartId);
+            
+            hasOrderItems = orderItemsCount > 0;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при загрузке данных: {ex.Message}";
+        }
+    }
+
+    private string GetStockBadgeClass(int quantity)
+    {
+        return quantity > 0 ? "bg-success" : "bg-danger";
+    }
+
+    private async Task DeleteImageFile()
+    {
+        if (string.IsNullOrEmpty(imagePathForDeletion))
+            return;
+
+        try
+        {
+            // Преобразуем относительный путь в абсолютный
+            // Убираем первый символ '/', если он есть
+            var relativePath = imagePathForDeletion.TrimStart('~').TrimStart('/');
+            
+            // Полный путь к файлу
+            var filePath = Path.Combine(Environment.WebRootPath, relativePath);
+            
+            Console.WriteLine($"Попытка удалить файл: {filePath}");
+            Console.WriteLine($"Файл существует: {File.Exists(filePath)}");
+            
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+                Console.WriteLine($"Изображение успешно удалено: {filePath}");
+            }
+            else
+            {
+                Console.WriteLine($"Файл не найден: {filePath}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при удалении изображения: {ex.Message}");
+            Console.WriteLine($"StackTrace: {ex.StackTrace}");
+            // Продолжаем выполнение, даже если не удалось удалить изображение
+        }
+    }
+
+    private async Task DeletePart()
+    {
+        if (part is null || hasOrderItems || isDeleting) return;
+
+        isDeleting = true;
+        StateHasChanged();
+
+        try
+        {
+            // Удаляем изображение с диска, если оно существует
+            await DeleteImageFile();
+
+            using var context = DbFactory.CreateDbContext();
+            var partToDelete = await context.Parts.FindAsync(part.PartId);
+            
+            if (partToDelete != null)
+            {
+                context.Parts.Remove(partToDelete);
+                await context.SaveChangesAsync();
+                
+                // Перенаправляем на список запчастей
+                NavigationManager.NavigateTo("/parts");
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ошибка при удалении: {ex.Message}";
+            Console.WriteLine($"Ошибка при удалении запчасти: {ex.Message}");
+            Console.WriteLine($"StackTrace: {ex.StackTrace}");
+            isDeleting = false;
+            StateHasChanged();
+        }
+    }
+}
