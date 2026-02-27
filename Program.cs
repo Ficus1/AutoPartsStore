@@ -64,6 +64,8 @@ var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
 {
+    var dbContext = scope.ServiceProvider.GetRequiredService<AutoPartsContext>();
+    dbContext.Database.Migrate(); // Применит все ожидающие миграции
     await SeedData.Initialize(scope.ServiceProvider);
 }
 
